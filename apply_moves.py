@@ -17,8 +17,10 @@ This runs on the gmail.labels scope, which cannot read a single email.
 
 import argparse
 import csv
+import os
 import sys
 import time
+from datetime import datetime
 
 from googleapiclient.errors import HttpError
 
@@ -132,7 +134,15 @@ def main():
             results.append((old, new, 'FAILED', str(err)))
             failed += 1
 
-    log_path = gc.AUDIT_CSV.replace('label_audit.csv', 'apply_log.csv')
+    # Timestamped, and derived from the input we were actually given - never a
+    # fixed name that could land on top of the CSV we just read, or on top of
+    # an earlier run's log. Those logs are the only record of the old names.
+    stamp = datetime.now().strftime('%Y-%m-%d-%H%M%S')
+    log_path = os.path.join(os.path.dirname(os.path.abspath(args.csv)),
+                            'apply_log-%s%s.csv' % (stamp, '-dryrun' if dry else ''))
+    if os.path.abspath(log_path) == os.path.abspath(args.csv):
+        sys.exit('Refusing to write the log over the input CSV: %s' % args.csv)
+
     with open(log_path, 'w', newline='', encoding='utf-8-sig') as fh:
         writer = csv.writer(fh)
         writer.writerow(['ORIGINAL_NAME', 'NEW_NAME', 'RESULT', 'ERROR'])
@@ -146,7 +156,7 @@ def main():
     else:
         print('Done. %d moved, %d containers created, %d skipped/failed.'
               % (moved, created, failed))
-        print('To reverse: swap the first two columns of %s and feed it back in.' % log_path)
+        print('KEEP %s - it is the only record of the original names.' % log_path)
         print('Gmail\'s sidebar can take a minute to catch up - reload Gmail if it looks odd.')
     print('Log: %s' % log_path)
     return 0

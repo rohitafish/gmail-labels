@@ -88,7 +88,10 @@ def main():
         reference[label] = {'date': serial_to_date(row[1]), 'verdict': row[3]}
 
     with open(csv_path, encoding='utf-8-sig') as fh:
-        mine = {r['LABEL']: r for r in csv.DictReader(fh) if r['LEAF'] == 'yes'}
+        mine = {
+            r['LABEL']: r for r in csv.DictReader(fh)
+            if r['LEAF'] == 'yes' and not gc.is_archived(r['LABEL'])
+        }
 
     print('Reference spreadsheet : %d leaf labels' % len(reference))
     print('This audit            : %d leaf labels\n' % len(mine))
