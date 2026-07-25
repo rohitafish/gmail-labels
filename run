@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs a script in this folder's venv, from this folder.
+cd "$(dirname "$0")" || exit 1
+exec ./.venv/bin/python "$@"

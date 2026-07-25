@@ -1,0 +1,14 @@
+# OAuth secrets - never commit
+credentials.json
+token_readonly.json
+token_labels.json
+
+.venv/
+.audit_cache.json
+label_audit.csv
+journeys_audit.csv
+apply_log.csv
+__pycache__/
+
+# Undo records - copies of apply_log.csv, same personal label paths
+undo-*.csv
