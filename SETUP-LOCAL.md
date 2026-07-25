@@ -101,13 +101,46 @@ re-running is instant. Use `--refresh` to re-read everything from Gmail.
 | AGE_DAYS | How long since that email |
 | MESSAGES | Approximate message count |
 | LEAF | Whether it has sub-labels of its own |
-| VERDICT | ACTIVE / STALE / EMPTY / …(has sub-labels) |
+| VERDICT | see the table below |
 | PROPOSED_NEW_NAME | Where it would move to |
 | **ACTION** | **MOVE or SKIP — edit this column to overrule** |
 | NOTE | Why something was skipped |
 
 Rows are sorted oldest-first. Open it in Excel or Sheets, edit the ACTION
 column, save as CSV.
+
+### Verdicts
+
+| Verdict | Meaning |
+|---|---|
+| `ACTIVE` | Mail within the last 2 years. Left alone. |
+| `STALE` | No mail for 2 years. Proposed for archiving. |
+| `EMPTY` | No emails ever. Delete it by hand; the scripts never do. |
+| `ARCHIVED` | Already under an `Old`, and still quiet. Correctly filed. |
+| **`REVIVE`** | **Already under an `Old`, but mail has started arriving again. Proposed to come back up a level.** |
+| `ARCHIVE CONTAINER` | The `Old` folder itself. Never moved in either direction. |
+| `… (has sub-labels)` | Has children, so it is never renamed — that would orphan them. Its children are handled individually. |
+
+### Archiving and revival
+
+The audit runs in both directions. A stale label moves *down* into `Old`; an
+archived label that starts receiving mail again moves *back up*, by dropping
+the archive segment nearest the leaf:
+
+```
+Dosh 💹/Banks/Acme Bank        ->  Dosh 💹/Banks/Old/Acme Bank       (archive)
+Dosh 💹/Banks/Old/Acme Bank    ->  Dosh 💹/Banks/Acme Bank           (revive)
+Computing 👾/Old/Vendor/Reseller -> Computing 👾/Vendor/Reseller      (revive, deep)
+```
+
+These are exact inverses — verified against all 228 real moves from the first
+run. Revival can only be triggered by genuinely new mail, since ageing alone
+only ever pushes a label further past the line, so labels cannot oscillate
+between runs.
+
+Pass `--no-revive` to skip archived labels entirely and tidy one-way only.
+That is faster, since checking for revivals roughly doubles the labels
+examined (583 rather than 288 after the first run).
 
 **Borderline rows** — anything within 183 days either side of the 2-year line —
 are flagged in NOTE and defaulted to **SKIP**, whichever side they fall on.
@@ -143,17 +176,23 @@ deepest paths first so a parent is never renamed out from under a child, skips
 any target name that already exists rather than crashing, and sleeps 120ms
 between calls to stay inside the rate limits.
 
-Every result is written to **`apply_log.csv`** with the original name in
-column 1.
+Every result is written to a timestamped **`apply_log-<date>-<time>.csv`** with
+the original name in column 1. Dry runs get a `-dryrun` suffix. Nothing is ever
+overwritten — those logs are the only record of the old names, so keep them.
 
 Gmail's sidebar can take a minute to catch up. Reload Gmail if the tree looks
 wrong immediately afterwards.
 
 ### Undoing
 
-Swap the first two columns of `apply_log.csv`, rename the headers to `LABEL`
+Swap the first two columns of the apply log, rename the headers to `LABEL`
 and `PROPOSED_NEW_NAME`, add an `ACTION` column of `MOVE`, and run
-`apply_moves.py --csv thatfile.csv`.
+`apply_moves.py --csv thatfile.csv`. The run writes its own fresh timestamped
+log, so the file you are reversing from is never touched.
+
+For a single label that was archived by mistake, you don't need any of this —
+just wait for the next audit. If mail has arrived on it, it comes back as a
+`REVIVE` row automatically.
 
 ---
 

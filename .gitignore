@@ -7,7 +7,7 @@ token_labels.json
 .audit_cache.json
 label_audit.csv
 journeys_audit.csv
-apply_log.csv
+apply_log*.csv
 __pycache__/
 
 # Undo records - copies of apply_log.csv, same personal label paths

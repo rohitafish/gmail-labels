@@ -168,3 +168,41 @@ def propose_name(name, all_names):
     leaf = name.split('/')[-1]
     container, _ = archive_container(name, all_names)
     return '%s/%s' % (container, leaf)
+
+
+def is_archive_container(name):
+    """True if this label IS an Old/zOld folder, rather than something filed in one.
+
+    Containers are structure. They are never moved in either direction.
+    """
+    return name.split('/')[-1].strip().lower() in ARCHIVE_SEGMENTS
+
+
+def archive_segment_index(name):
+    """Position of the archive segment nearest the leaf, or None if there is none.
+
+    Only segments before the final one count - a trailing Old is the container
+    itself, which is_archive_container handles.
+    """
+    parts = name.split('/')
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index].strip().lower() in ARCHIVE_SEGMENTS:
+            return index
+    return None
+
+
+def revive_name(name):
+    """Drop the archive segment nearest the leaf - the inverse of propose_name.
+
+        Dosh 💹/Banks/Old/Acme Bank       ->  Dosh 💹/Banks/Acme Bank
+        Computing 👾/Old/Vendor/Reseller  ->  Computing 👾/Vendor/Reseller
+
+    Used when mail starts arriving on a label that was previously archived.
+    Returns None if there is no archive segment to drop.
+    """
+    index = archive_segment_index(name)
+    if index is None:
+        return None
+    parts = name.split('/')
+    del parts[index]
+    return '/'.join(parts)
