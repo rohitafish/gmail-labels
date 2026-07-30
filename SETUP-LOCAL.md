@@ -205,7 +205,11 @@ cd ~/gmail_labels && ./run verify_journeys.py journeys_audit.csv
 
 This diffs a fresh Journeys audit against your hand-checked
 `Gmail label audit - Journeys.xlsx` and reports coverage gaps, verdict
-mismatches and date differences.
+mismatches and date differences. That spreadsheet is gitignored — it's a
+real record of your own label tree, kept local rather than shipped in the
+repo — so this step only works on the machine that already has it; it was a
+one-off sanity check for the first port of this tooling, not something a
+fresh clone needs to repeat.
 
 Two things to expect:
 
