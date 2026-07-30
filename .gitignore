@@ -12,3 +12,8 @@ __pycache__/
 
 # Undo records - copies of apply_log.csv, same personal label paths
 undo-*.csv
+
+# Project-specific PII denylist (real bank/client/family names) checked by
+# the machine-wide git pre-push hook -- see ~/.pii-guardrail/README.md.
+# This repo is the one flagged as worth populating one for.
+.pii-denylist
