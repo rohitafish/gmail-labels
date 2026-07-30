@@ -16,7 +16,7 @@ A label is **stale** if it has no email newer than **2 years**. A stale label mo
 ```
 Dosh 💹/Banks/Acme Bank        ->  Dosh 💹/Banks/Old/Acme Bank
 Journeys✈️/Rail/Acme Rail ->  Journeys✈️/Rail/Old/Acme Rail
-Hobbies 🎲/Chess               ->  Health⚕️/Old/Pulse
+Hobbies 🎲/Chess               ->  Hobbies 🎲/Old/Chess
 ```
 
 This matches the pattern I'd already started by hand (`Business 🏭/Clients/Old/Northwind`,

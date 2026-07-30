@@ -163,7 +163,7 @@ def propose_name(name, all_names):
     """Insert the archive segment immediately before the final segment.
 
         Dosh 💹/Banks/Acme Bank  ->  Dosh 💹/Banks/Old/Acme Bank
-        Hobbies 🎲/Chess        ->  Health⚕️/Old/Pulse
+        Hobbies 🎲/Chess        ->  Hobbies 🎲/Old/Chess
     """
     leaf = name.split('/')[-1]
     container, _ = archive_container(name, all_names)

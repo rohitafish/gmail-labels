@@ -13,6 +13,9 @@ __pycache__/
 # Undo records - copies of apply_log.csv, same personal label paths
 undo-*.csv
 
+# Real label tree from your own mailbox - kept local, not shipped in the repo
+Gmail label audit - Journeys.xlsx
+
 # Project-specific PII denylist (real bank/client/family names) checked by
 # the machine-wide git pre-push hook -- see ~/.pii-guardrail/README.md.
 # This repo is the one flagged as worth populating one for.
