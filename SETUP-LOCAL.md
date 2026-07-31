@@ -242,3 +242,43 @@ invisible variation selectors never have to be typed. Set it to `[]` to process
 every top-level label — but note that if you do, the top-level `zOld 💾` label
 won't be recognised as an archive, because the segment test matches `zold`
 exactly and that name carries an emoji. Add it to `ARCHIVE_SEGMENTS` first.
+
+---
+
+## PII check (one-time, before your first push)
+
+`scripts/check-pii.sh` scans commits for real personal/financial data
+before they reach GitHub: known values from `.pii-denylist` (a gitignored,
+dev-machine-only file — real bank/client names, the same idea as
+`credentials.json` for secrets), plus generic structural patterns (emails,
+GPS coordinates, non-private IPs, SSN-like numbers, UK National Insurance
+numbers and postcodes) as defense in depth. It also warns (doesn't block)
+on UK sort codes/mobile numbers and on any `.xlsx`/`.docx`/`.pdf`/etc.
+added in the commits — git can't see inside those, so it's a nudge to
+check by hand, not a substitute for it.
+
+Install the pre-push hook once per dev-machine clone (hooks aren't
+cloned/synced by git):
+
+```bash
+cp scripts/hooks/pre-push .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+It blocks any push whose commits trip `check-pii.sh`. `git push
+--no-verify` bypasses it deliberately if you're certain something's a
+false positive — don't reach for that reflexively.
+
+Run it by hand any time:
+
+```bash
+./scripts/check-pii.sh            # commits about to be pushed
+./scripts/check-pii.sh --full     # this repo's entire history
+```
+
+This used to be handled by a machine-wide hook (`~/.pii-guardrail/`,
+covering every repo on the dev machine via git's global `core.hooksPath`)
+that's since been decommissioned — one shared denylist across unrelated
+projects meant a term safe in one project's content could collide with
+ordinary language in another's. This repo now runs its own local,
+hand-tuned copy instead, same mechanism, no cross-project blast radius.
