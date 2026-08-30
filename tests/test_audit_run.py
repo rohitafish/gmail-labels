@@ -38,6 +38,21 @@ def _run_main(monkeypatch, fake_service, out_path, extra_argv=()):
         return list(csv.DictReader(fh))
 
 
+def test_a_label_name_starting_with_a_formula_character_is_escaped_in_the_csv(
+        tmp_path, monkeypatch, fake_service):
+    """SETUP-LOCAL.md tells you to open this CSV in Excel/Sheets -- a label
+    starting with =/+/-/@ must come through as literal text, not a formula
+    (CWE-1236). gc.csv_safe() is unit-tested in test_csv_safe.py; this pins
+    that main() actually applies it to what it writes."""
+    risky_name = '=cmd|"/c calc"!A1'
+    fake_service.label_list = [make_label(risky_name, 'id-1')]
+    out = tmp_path / 'audit.csv'
+
+    rows = _run_main(monkeypatch, fake_service, out)
+
+    assert rows[0]['LABEL'] == "'" + risky_name
+
+
 def test_header_matches_csv_columns_exactly(tmp_path, monkeypatch, fake_service):
     fake_service.label_list = [make_label('Widgets 🧩/Vendors/Acme Supply')]
     out = tmp_path / 'audit.csv'

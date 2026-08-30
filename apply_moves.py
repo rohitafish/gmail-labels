@@ -156,10 +156,14 @@ def main():
     if os.path.abspath(log_path) == os.path.abspath(args.csv):
         sys.exit('Refusing to write the log over the input CSV: %s' % args.csv)
 
+    # Every field passed through csv_safe() -- this log gets opened in a
+    # spreadsheet during the undo procedure (SETUP-LOCAL.md), and a label
+    # name starting with =/+/-/@ would otherwise be read as a formula.
+    safe_results = [tuple(gc.csv_safe(field) for field in row) for row in results]
     with open(log_path, 'w', newline='', encoding='utf-8-sig') as fh:
         writer = csv.writer(fh)
         writer.writerow(['ORIGINAL_NAME', 'NEW_NAME', 'RESULT', 'ERROR'])
-        writer.writerows(results)
+        writer.writerows(safe_results)
 
     print()
     if dry:

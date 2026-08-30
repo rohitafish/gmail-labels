@@ -155,7 +155,7 @@ def test_retry_returns_on_first_success():
     assert gc.retry(lambda: 'ok') == 'ok'
 
 
-@pytest.mark.parametrize('status', [403, 429, 500, 502, 503, 504])
+@pytest.mark.parametrize('status', [429, 500, 502, 503, 504])
 def test_retry_retries_each_documented_transient_status(status):
     attempts = {'n': 0}
 
@@ -193,12 +193,14 @@ def test_retry_gives_up_after_the_configured_number_of_tries():
     assert attempts['n'] == 3
 
 
-def test_403_is_treated_as_transient_by_design(monkeypatch):
+def test_403_is_not_retried_it_raises_immediately():
     """Pinned as documented behaviour, not silently assumed: a genuine
-    permission denial (403) currently burns all `tries` attempts and their
-    full backoff before surfacing, the same as a real rate limit. If that
-    default (retry(call, tries=6)) is ever narrowed to exclude 403, this
-    test should change with it -- deliberately, not as a side effect."""
+    permission denial (403) means the credentials/scope will never succeed
+    for this resource, unlike a genuinely transient 429/5xx -- so it's
+    treated the same as a 404, raising on the first attempt rather than
+    burning all `tries` attempts and their full backoff (~30s) before
+    surfacing. That used to happen per label, so a broken run over hundreds
+    of labels could take a very long time to visibly fail."""
     attempts = {'n': 0}
 
     def always_403():
@@ -207,7 +209,7 @@ def test_403_is_treated_as_transient_by_design(monkeypatch):
 
     with pytest.raises(gc.HttpError):
         gc.retry(always_403)  # default tries
-    assert attempts['n'] == 6
+    assert attempts['n'] == 1
 
 
 # ---------------------------- list_user_labels() ----------------------------
