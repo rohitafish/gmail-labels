@@ -16,7 +16,18 @@ undo-*.csv
 # Real label tree from your own mailbox - kept local, not shipped in the repo
 Gmail label audit - Journeys.xlsx
 
-# Project-specific PII denylist (real bank/client/family names) checked by
-# the machine-wide git pre-push hook -- see ~/.pii-guardrail/README.md.
-# This repo is the one flagged as worth populating one for.
+# Project-specific PII denylist (real bank/client/family names), gitignored
+# and dev-machine-only -- the one sanctioned place these values live in
+# plaintext. Checked by scripts/check-pii.sh via the local pre-push hook.
 .pii-denylist
+
+# Dev tooling caches (pytest, ruff, coverage) - see pytest.ini, ruff.toml,
+# .coveragerc. Regenerated on every run; nothing here is meant to be shared.
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Claude Code's own local session/config directory - machine-specific,
+# never meant to be shared or committed.
+.claude/
