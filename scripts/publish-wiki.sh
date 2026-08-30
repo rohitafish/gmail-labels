@@ -149,7 +149,14 @@ if [ "${#CHANGED[@]}" -eq 0 ]; then
 fi
 
 # ---- 9. show the diff and confirm ----
-( cd "$SCRATCH/wiki" && git --no-pager diff -- "${CHANGED[@]}" )
+# Stage before diffing, not after confirming: a plain `git diff` shows
+# nothing at all for a brand-new page (git diff only compares tracked
+# content, and an untracked file has none to compare against) -- which
+# would silently hide every new page from this review step while still
+# showing modifications to existing ones. `git diff --cached` on the
+# staged tree shows both correctly. Staging here is harmless even if the
+# answer below is No -- SCRATCH is deleted by the EXIT trap regardless.
+( cd "$SCRATCH/wiki" && git add -A -- "${CHANGED[@]}" && git --no-pager diff --cached -- "${CHANGED[@]}" )
 echo ""
 echo "This will publish immediately to the PUBLIC wiki -- no PR/review gate,"
 echo "same as any other publish-to-a-public-place action."
