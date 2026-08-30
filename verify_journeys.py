@@ -105,7 +105,7 @@ def main():
         for label in missing_from_ref:
             print('  %s   (%s messages, last %s)'
                   % (label, mine[label]['MESSAGES'], mine[label]['LAST_EMAIL'] or 'never'))
-        print('')
+        print()
 
     missing_from_mine = sorted(set(reference) - set(mine))
     if missing_from_mine:
@@ -113,7 +113,7 @@ def main():
         print('IN THE SPREADSHEET BUT NOT IN THIS AUDIT (%d):' % len(missing_from_mine))
         for label in missing_from_mine:
             print('  %s' % label)
-        print('')
+        print()
 
     verdict_diffs = []
     date_diffs = []
@@ -139,14 +139,14 @@ def main():
         for label, ref_v, got_v, ref_d, got_d in verdict_diffs:
             print('  %s\n    spreadsheet: %-8s (%s)\n    this audit : %-8s (%s)'
                   % (label, ref_v, ref_d, got_v, got_d))
-        print('')
+        print()
 
     if date_diffs:
         print('DATE DIFFERENCES OVER 1 DAY (%d) - verdict unaffected:' % len(date_diffs))
         for label, ref_d, got_d, delta in date_diffs:
             print('  %-45s spreadsheet %s vs audit %s  (%d days)'
                   % (label, ref_d, got_d, delta))
-        print('')
+        print()
 
     matched = len(set(mine) & set(reference)) - len(verdict_diffs)
     print('--- RESULT ---')

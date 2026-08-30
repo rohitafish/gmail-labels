@@ -6,11 +6,12 @@
 #   cp scripts/hooks/pre-push .git/hooks/pre-push
 #   chmod +x .git/hooks/pre-push
 #
-# Blocks a push if scripts/check-pii.sh finds anything in the commits being
-# pushed. This is the mechanical backstop: it fires on every push -- one run
-# directly by a human, not just one an AI assistant remembers to check
-# first -- which is the whole point of it existing rather than relying on
-# memory/discipline alone.
+# Blocks a push if the test suite fails, coverage drops below its floor,
+# ruff finds a violation, or scripts/check-pii.sh finds anything in the
+# commits being pushed. This is the mechanical backstop: it fires on every
+# push -- one run directly by a human, not just one an AI assistant
+# remembers to check first -- which is the whole point of it existing
+# rather than relying on memory/discipline alone.
 #
 # Git passes push info on stdin, one line per ref being pushed:
 #   <local ref> <local sha1> <remote ref> <remote sha1>
@@ -27,6 +28,65 @@
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ZERO="0000000000000000000000000000000000000000"
 FAILED=0
+
+# Not ref-specific, so run once up front rather than once per ref in the loop
+# below. pytest/coverage/ruff are dev-only tooling (requirements-dev.txt) --
+# if none is installed, warn and let the push through rather than blocking on
+# tooling absence; installed-and-failing does block. This mirrors
+# check-pii.sh's own denylist-missing WARN below: absence of setup is
+# expected on a checkout that hasn't run the one-time `pip install -r
+# requirements-dev.txt`, a real failure once the tooling exists is not.
+#
+# Run under `coverage`, not a bare pytest, when coverage is installed: CI's
+# gate is .coveragerc's fail_under, and without this, that gate would exist
+# only in CI -- a change that dropped coverage below the floor would pass
+# every local check and only fail on the PR.
+#
+# Run in a `cd`-ed subshell, not via --rcfile from the caller's cwd:
+# .coveragerc's `source = gmail_common / audit / apply_moves /
+# verify_journeys` are resolved relative to the CURRENT WORKING DIRECTORY,
+# not the rcfile's location -- a git hook's invoking cwd isn't guaranteed to
+# be the repo root, so this matches what CI's `coverage run -m pytest -q`
+# gets for free by running from the checkout root.
+if [ -x "$REPO_DIR/.venv/bin/coverage" ]; then
+  if [ -x "$REPO_DIR/.venv/bin/pytest" ]; then
+    if ! (cd "$REPO_DIR" && "$REPO_DIR/.venv/bin/coverage" run -m pytest -q); then
+      echo "" >&2
+      echo "pre-push: pytest suite failed -- push blocked." >&2
+      FAILED=1
+    elif ! (cd "$REPO_DIR" && "$REPO_DIR/.venv/bin/coverage" report); then
+      echo "" >&2
+      echo "pre-push: coverage dropped below the .coveragerc fail_under threshold -- push blocked." >&2
+      FAILED=1
+    fi
+  else
+    echo "pre-push: pytest not installed in .venv -- skipping test run (run: pip install -r requirements-dev.txt)" >&2
+  fi
+elif [ -x "$REPO_DIR/.venv/bin/pytest" ]; then
+  if ! "$REPO_DIR/.venv/bin/pytest" -q "$REPO_DIR"; then
+    echo "" >&2
+    echo "pre-push: pytest suite failed -- push blocked." >&2
+    FAILED=1
+  fi
+  echo "pre-push: coverage not installed in .venv -- ran pytest without the coverage gate (run: pip install -r requirements-dev.txt)" >&2
+else
+  echo "pre-push: pytest not installed in .venv -- skipping test run (run: pip install -r requirements-dev.txt)" >&2
+fi
+
+# Same reasoning as the pytest block above: not ref-specific, so run once up
+# front. ruff is dev-only tooling -- missing is a WARN, a real lint failure
+# (once installed) is a FAIL that blocks the push. --cache-dir is explicit,
+# not left to default relative-to-cwd behaviour, for the same reason the
+# coverage block above `cd`s first.
+if [ -x "$REPO_DIR/.venv/bin/ruff" ]; then
+  if ! "$REPO_DIR/.venv/bin/ruff" check "$REPO_DIR" --cache-dir "$REPO_DIR/.ruff_cache"; then
+    echo "" >&2
+    echo "pre-push: ruff check failed -- push blocked." >&2
+    FAILED=1
+  fi
+else
+  echo "pre-push: ruff not installed in .venv -- skipping lint (run: pip install -r requirements-dev.txt)" >&2
+fi
 
 exec 3<&0
 
@@ -52,7 +112,7 @@ exec 3<&-
 if [ "$FAILED" -ne 0 ]; then
   {
     echo ""
-    echo "pre-push: scripts/check-pii.sh found something above -- push blocked."
+    echo "pre-push: a check above failed (pytest, coverage, ruff, and/or check-pii.sh) -- push blocked."
     echo "Fix it, or if you're certain it's a false positive:"
     echo "  git push --no-verify"
     echo "(only do that deliberately -- see SETUP-LOCAL.md's \"PII check\" section)"

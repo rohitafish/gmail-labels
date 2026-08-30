@@ -1,0 +1,11 @@
+# Dev-only tooling -- not needed to run audit.py/apply_moves.py/verify_journeys.py
+# themselves, only to develop and verify changes to them. Install with:
+#   ./.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+pytest==9.1.1
+ruff==0.16.4
+# Measures what the suite actually reaches (settings in .coveragerc). The
+# pre-push hook and CI both run the suite under it and fail below the
+# threshold there, so the pin matters for the same reason requirements.txt's
+# do: a floor would let a future run resolve a different version than what
+# was run locally, and branch-counting can shift slightly between versions.
+coverage==7.16.0

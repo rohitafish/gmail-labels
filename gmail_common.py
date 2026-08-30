@@ -36,6 +36,13 @@ STALE_YEARS = 2
 # calls. Flip one to MOVE in the CSV to include it.
 BORDERLINE_DAYS = 183
 
+# An archived label is only proposed for revival if it has received mail
+# within this many months - deliberately a much tighter, more recent bar
+# than STALE_YEARS, so a single old email on a label dormant for well over
+# a year doesn't yank it back up a level. Hard cutoff, no borderline grace
+# zone (unlike the stale/active line) - see audit.classify.
+REVIVE_MONTHS = 6
+
 # Name used when a new archive sub-label has to be created.
 OLD_NAME = 'Old'
 
@@ -115,9 +122,9 @@ def list_user_labels(svc):
     """Every user-created label, as [{'id': ..., 'name': ...}]."""
     res = retry(lambda: svc.users().labels().list(userId='me').execute())
     return [
-        {'id': l['id'], 'name': l['name']}
-        for l in res.get('labels', [])
-        if l.get('type') == 'user'
+        {'id': label['id'], 'name': label['name']}
+        for label in res.get('labels', [])
+        if label.get('type') == 'user'
     ]
 
 
