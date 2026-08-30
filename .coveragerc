@@ -1,0 +1,37 @@
+# Coverage settings, kept in a file rather than passed as CI flags so a
+# local `coverage run -m pytest` measures exactly what CI measures.
+
+[run]
+# Branch coverage, not just statement coverage. The difference matters here:
+# most of what this codebase gets wrong lives in a branch a statement-covered
+# line still skips -- the `if dry: continue` in apply_moves' loop, the
+# `if not creds or not creds.valid` gate in gmail_common.service, the
+# borderline/collision branches in audit.classify.
+branch = True
+
+# Only this project's own four modules. Without it, coverage also measures
+# every installed dependency (googleapiclient, google-auth, ...) that
+# happens to execute during a test run, which swamps the total and makes
+# fail_under below meaningless.
+source =
+    gmail_common
+    audit
+    apply_moves
+    verify_journeys
+
+[report]
+show_missing = True
+
+# Files at 100% are noise in the report -- the interesting output is the
+# list of what still has gaps.
+skip_covered = True
+
+# A ratchet, not a target. Set below the measured total (99% at the time of
+# writing) deliberately: CI matrixes 3.12/3.14 while development happens on
+# 3.14, and branch counting can differ by a fraction of a point between
+# versions -- a threshold pinned exactly at the measured value would fail on
+# that alone. What's left uncovered at 99% is the four scripts' `if __name__
+# == '__main__':` guards and one already-documented defensively-unreachable
+# branch in audit.classify (see its comment). Raise this when the total
+# moves up; the headroom is for version drift, not for losing coverage.
+fail_under = 97

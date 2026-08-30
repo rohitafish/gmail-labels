@@ -27,6 +27,22 @@ from googleapiclient.errors import HttpError
 import gmail_common as gc
 
 
+def create_label(svc, name):
+    """Create a new user label named `name`, visible in the sidebar and the
+    message list - the same defaults Gmail's own "create label" uses."""
+    return gc.retry(lambda: svc.users().labels().create(
+        userId='me',
+        body={'name': name,
+              'labelListVisibility': 'labelShow',
+              'messageListVisibility': 'show'}).execute())
+
+
+def rename_label(svc, label_id, new_name):
+    """Rename an existing label in place. Preserves every email on it."""
+    return gc.retry(lambda: svc.users().labels().patch(
+        userId='me', id=label_id, body={'name': new_name}).execute())
+
+
 def read_jobs(path):
     with open(path, encoding='utf-8-sig') as fh:
         rows = list(csv.DictReader(fh))
@@ -61,7 +77,9 @@ def main():
     args = parser.parse_args()
     dry = not args.apply
 
-    rows, jobs = read_jobs(args.csv)
+    # read_jobs also returns every parsed row (not just MOVE ones), kept for
+    # callers that want to report on the full CSV; main() only needs jobs.
+    _rows, jobs = read_jobs(args.csv)
     if not jobs:
         print('Nothing marked MOVE in %s - nothing to do.' % args.csv)
         return 0
@@ -69,7 +87,7 @@ def main():
     svc = gc.service(gc.SCOPE_LABELS, 'token_labels.json')
 
     labels = gc.list_user_labels(svc)
-    id_by_name = {l['name']: l['id'] for l in labels}
+    id_by_name = {label['name']: label['id'] for label in labels}
     existing = set(id_by_name)
 
     tag = '[dry] ' if dry else ''
@@ -100,11 +118,7 @@ def main():
             print('%sCREATE  %s' % (tag, container))
             if not dry:
                 try:
-                    made = gc.retry(lambda: svc.users().labels().create(
-                        userId='me',
-                        body={'name': container,
-                              'labelListVisibility': 'labelShow',
-                              'messageListVisibility': 'show'}).execute())
+                    made = create_label(svc, container)
                     id_by_name[container] = made['id']
                 except HttpError as err:
                     if err.resp.status != 409:      # 409 = already exists, fine
@@ -121,8 +135,7 @@ def main():
             continue
 
         try:
-            gc.retry(lambda: svc.users().labels().patch(
-                userId='me', id=label_id, body={'name': new}).execute())
+            rename_label(svc, label_id, new)
             existing.discard(old)
             existing.add(new)
             id_by_name[new] = label_id
@@ -148,7 +161,7 @@ def main():
         writer.writerow(['ORIGINAL_NAME', 'NEW_NAME', 'RESULT', 'ERROR'])
         writer.writerows(results)
 
-    print('')
+    print()
     if dry:
         print('DRY RUN finished - nothing was changed.')
         print('%d rename(s) and %d new container(s) would happen.' % (len(jobs), created))

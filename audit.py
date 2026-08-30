@@ -20,9 +20,138 @@ import os
 import sys
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import gmail_common as gc
+
+
+def classify(name, entry, all_names, now, cutoff, stale_days, revive_cutoff):
+    """Decide VERDICT / PROPOSED_NEW_NAME / ACTION / NOTE for one label.
+
+    Pure: no service, no file I/O, no clock of its own -- `now`, `cutoff`,
+    `stale_days` and `revive_cutoff` are passed in so a caller (or a test)
+    can pin the staleness/revival lines instead of racing datetime.now().
+    `entry` is one cache entry, i.e. {'last': iso_string_or_None, 'messages':
+    int}.
+
+    `revive_cutoff` is deliberately a separate, more recent line than
+    `cutoff`: reviving an archived label requires mail within
+    gc.REVIVE_MONTHS, a much tighter bar than the gc.STALE_YEARS line that
+    governs archiving in the first place. It has no borderline grace zone,
+    unlike the stale/active decision below.
+
+    Returns every column main() writes to the CSV except LABEL and LABEL_ID
+    (the caller already has those), plus two bookkeeping-only flags --
+    COLLISION and BORDERLINE -- that main() uses to update its run-level
+    counters. Those two are not CSV columns and must be stripped before a
+    row is handed to csv.DictWriter.
+    """
+    leaf = gc.is_leaf(name, all_names)
+    archived = gc.is_archived(name)
+    last_iso = entry['last']
+    messages = entry['messages']
+
+    proposed = ''
+    note = ''
+    action = 'SKIP'
+    collision = False
+    borderline_flag = False
+
+    if last_iso is None:
+        when = None
+        age_days = ''
+        last_display = ''
+        stale = True
+        borderline = False
+    else:
+        when = datetime.fromisoformat(last_iso)
+        age_days = (now - when).days
+        last_display = when.date().isoformat()
+        stale = when < cutoff
+        borderline = abs(age_days - stale_days) <= gc.BORDERLINE_DAYS
+
+    if gc.is_archive_container(name):
+        # The Old folder itself. Structure, not content - never moved.
+        verdict = 'ARCHIVE CONTAINER'
+        note = 'The archive folder itself - never moved, never deleted.'
+
+    elif not leaf:
+        # Gmail stores each label's full path as its name, so renaming a
+        # label that has children orphans every one of them.
+        if when is None:
+            # A parent carrying no mail of its own is structure, not clutter.
+            verdict = 'EMPTY (has sub-labels)'
+            note = ('No mail of its own, but it has sub-labels - this is a '
+                    'container. Do not delete it.')
+        else:
+            state = 'ARCHIVED' if archived else ('STALE' if stale else 'ACTIVE')
+            verdict = '%s (has sub-labels)' % state
+            note = ('Has sub-labels - never moved; its children are handled '
+                    'individually.')
+
+    elif archived:
+        # Already filed away. Revival requires genuinely recent mail -- within
+        # REVIVE_MONTHS of today, a much tighter and separate bar than the
+        # STALE_YEARS line that governs archiving. No borderline grace zone
+        # here: it's a hard cutoff, unlike the stale/active decision below.
+        if when is None:
+            verdict = 'EMPTY (archived)'
+            note = 'Archived and holds no emails at all.'
+        elif when < revive_cutoff:
+            verdict = 'ARCHIVED'          # correctly filed, nothing to do
+        else:
+            verdict = 'REVIVE'
+            proposed = gc.revive_name(name)
+            if not proposed:
+                # Defensive: given is_archive_container(name) is already
+                # False here, is_archived(name) being true means some
+                # *non-final* segment matched, which is exactly what
+                # revive_name/archive_segment_index scan for -- so this
+                # should be unreachable in practice. Kept rather than
+                # asserted against, in case a future ARCHIVE_SEGMENTS or
+                # path-logic change breaks that invariant.
+                verdict = 'ARCHIVED'
+                note = 'Active again, but no archive segment to drop.'
+            elif proposed in all_names:
+                note = 'Active again, but "%s" already exists.' % proposed
+                collision = True
+            else:
+                action = 'MOVE'
+                note = ('New mail %d days ago - bring it back up a level.'
+                        % age_days)
+
+    elif when is None:
+        verdict = 'EMPTY'
+        note = 'No emails at all - candidate for deletion, not archiving.'
+
+    else:
+        verdict = 'STALE' if stale else 'ACTIVE'
+        if stale or borderline:
+            proposed = gc.propose_name(name, all_names)
+
+        if proposed and proposed in all_names:
+            note = 'A label named "%s" already exists.' % proposed
+            collision = True
+        elif borderline:
+            note = ('BORDERLINE - %d days, within %d of the %d-day line. '
+                    'Set ACTION to MOVE to include it.'
+                    % (age_days, gc.BORDERLINE_DAYS, stale_days))
+            borderline_flag = True
+        elif stale:
+            action = 'MOVE'
+
+    return {
+        'LAST_EMAIL': last_display,
+        'AGE_DAYS': age_days,
+        'MESSAGES': messages,
+        'LEAF': 'yes' if leaf else 'no',
+        'VERDICT': verdict,
+        'PROPOSED_NEW_NAME': proposed,
+        'ACTION': action,
+        'NOTE': note,
+        'COLLISION': collision,
+        'BORDERLINE': borderline_flag,
+    }
 
 
 def last_message(svc, label_id):
@@ -42,7 +171,7 @@ def last_message(svc, label_id):
 
     msg = gc.retry(lambda: svc.users().messages().get(
         userId='me', id=messages[0]['id'], format='minimal').execute())
-    when = datetime.fromtimestamp(int(msg['internalDate']) / 1000.0, tz=timezone.utc)
+    when = datetime.fromtimestamp(int(msg['internalDate']) / 1000.0, tz=UTC)
     return when, estimate
 
 
@@ -69,7 +198,7 @@ def load_cache(refresh):
     except (KeyError, TypeError, ValueError):
         return {}
 
-    age_days = (datetime.now(timezone.utc) - written).days
+    age_days = (datetime.now(UTC) - written).days
     if age_days > gc.CACHE_MAX_AGE_DAYS:
         print('Cache is %d days old (limit %d) - re-reading every label.'
               % (age_days, gc.CACHE_MAX_AGE_DAYS))
@@ -77,14 +206,31 @@ def load_cache(refresh):
 
     print('Reusing cached dates from %s (%d days old).'
           % (written.date(), age_days))
-    return blob.get('entries', {})
+
+    entries = blob.get('entries', {})
+    if not isinstance(entries, dict):
+        return {}
+
+    # Validate each entry rather than the envelope alone - a cache entry
+    # missing 'last' (hand-edited, or written by a future version) would
+    # otherwise raise KeyError deep in the per-label loop. Drop just that
+    # one entry so its label is re-read fresh, not the whole cache.
+    valid = {}
+    for label_id, entry in entries.items():
+        if not isinstance(entry, dict) or 'last' not in entry:
+            continue
+        valid[label_id] = {
+            'last': entry['last'],
+            'messages': entry.get('messages', 0),
+        }
+    return valid
 
 
 def save_cache(entries):
     with open(gc.CACHE_FILE, 'w') as fh:
         json.dump({
             'version': 1,
-            'written': datetime.now(timezone.utc).isoformat(),
+            'written': datetime.now(UTC).isoformat(),
             'entries': entries,
         }, fh)
 
@@ -105,18 +251,18 @@ def main():
     svc = gc.service(gc.SCOPE_READONLY, 'token_readonly.json')
 
     labels = gc.list_user_labels(svc)
-    all_names = {l['name'] for l in labels}
+    all_names = {label['name'] for label in labels}
     print('%d user labels in the account.' % len(labels))
 
     targets = [
-        l for l in labels
-        if gc.in_scope(l['name'])
-        and (args.no_revive is False or not gc.is_archived(l['name']))
-        and (args.only is None or l['name'].startswith(args.only))
+        label for label in labels
+        if gc.in_scope(label['name'])
+        and (args.no_revive is False or not gc.is_archived(label['name']))
+        and (args.only is None or label['name'].startswith(args.only))
     ]
-    targets.sort(key=lambda l: l['name'])
+    targets.sort(key=lambda label: label['name'])
 
-    archived_count = sum(1 for l in targets if gc.is_archived(l['name']))
+    archived_count = sum(1 for label in targets if gc.is_archived(label['name']))
     if args.no_revive:
         print('%d labels in scope to examine (archived ones skipped entirely).'
               % len(targets))
@@ -124,11 +270,15 @@ def main():
         print('%d labels in scope to examine, %d of them already archived and '
               'checked for revival.' % (len(targets), archived_count))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(days=365.2425 * gc.STALE_YEARS)
     stale_days = (now - cutoff).days
-    print('Stale cutoff: %s (%d days ago). Borderline band: +/-%d days.\n'
+    revive_cutoff = now - timedelta(days=365.2425 * gc.REVIVE_MONTHS / 12)
+    revive_days = (now - revive_cutoff).days
+    print('Stale cutoff: %s (%d days ago). Borderline band: +/-%d days.'
           % (cutoff.date(), stale_days, gc.BORDERLINE_DAYS))
+    print('Revive cutoff: %s (mail within %d days of today qualifies).\n'
+          % (revive_cutoff.date(), revive_days))
 
     cache = load_cache(args.refresh)
     rows = []
@@ -151,94 +301,14 @@ def main():
                 save_cache(cache)
                 print('  ...%d/%d examined' % (index, len(targets)))
 
-        leaf = gc.is_leaf(name, all_names)
-        archived = gc.is_archived(name)
-        last_iso = entry['last']
-        messages = entry['messages']
+        result = classify(name, entry, all_names, now, cutoff, stale_days, revive_cutoff)
+        verdict = result['VERDICT']
+        action = result['ACTION']
 
-        proposed = ''
-        note = ''
-        action = 'SKIP'
-
-        if last_iso is None:
-            when = None
-            age_days = ''
-            last_display = ''
-            stale = True
-            borderline = False
-        else:
-            when = datetime.fromisoformat(last_iso)
-            age_days = (now - when).days
-            last_display = when.date().isoformat()
-            stale = when < cutoff
-            borderline = abs(age_days - stale_days) <= gc.BORDERLINE_DAYS
-
-        if gc.is_archive_container(name):
-            # The Old folder itself. Structure, not content - never moved.
-            verdict = 'ARCHIVE CONTAINER'
-            note = 'The archive folder itself - never moved, never deleted.'
-
-        elif not leaf:
-            # Gmail stores each label's full path as its name, so renaming a
-            # label that has children orphans every one of them.
-            if when is None:
-                # A parent carrying no mail of its own is structure, not clutter.
-                verdict = 'EMPTY (has sub-labels)'
-                note = ('No mail of its own, but it has sub-labels - this is a '
-                        'container. Do not delete it.')
-            else:
-                state = 'ARCHIVED' if archived else ('STALE' if stale else 'ACTIVE')
-                verdict = '%s (has sub-labels)' % state
-                note = ('Has sub-labels - never moved; its children are handled '
-                        'individually.')
-
-        elif archived:
-            # Already filed away. The only question is whether mail has started
-            # arriving again, in which case it comes back up a level.
-            if when is None:
-                verdict = 'EMPTY (archived)'
-                note = 'Archived and holds no emails at all.'
-            elif stale:
-                verdict = 'ARCHIVED'          # correctly filed, nothing to do
-            else:
-                verdict = 'REVIVE'
-                proposed = gc.revive_name(name)
-                if not proposed:
-                    verdict = 'ARCHIVED'
-                    note = 'Active again, but no archive segment to drop.'
-                elif proposed in all_names:
-                    note = 'Active again, but "%s" already exists.' % proposed
-                    counts['collision'] += 1
-                elif borderline:
-                    note = ('BORDERLINE revival - newest mail is %d days old, '
-                            'within %d of the %d-day line. Set ACTION to MOVE '
-                            'to bring it back.'
-                            % (age_days, gc.BORDERLINE_DAYS, stale_days))
-                    counts['borderline'] += 1
-                else:
-                    action = 'MOVE'
-                    note = ('New mail %d days ago - bring it back up a level.'
-                            % age_days)
-
-        elif when is None:
-            verdict = 'EMPTY'
-            note = 'No emails at all - candidate for deletion, not archiving.'
-
-        else:
-            verdict = 'STALE' if stale else 'ACTIVE'
-            if stale or borderline:
-                proposed = gc.propose_name(name, all_names)
-
-            if proposed and proposed in all_names:
-                note = 'A label named "%s" already exists.' % proposed
-                counts['collision'] += 1
-            elif borderline:
-                note = ('BORDERLINE - %d days, within %d of the %d-day line. '
-                        'Set ACTION to MOVE to include it.'
-                        % (age_days, gc.BORDERLINE_DAYS, stale_days))
-                counts['borderline'] += 1
-            elif stale:
-                action = 'MOVE'
+        if result['COLLISION']:
+            counts['collision'] += 1
+        if result['BORDERLINE']:
+            counts['borderline'] += 1
 
         counts[verdict] += 1
         if action == 'MOVE':
@@ -247,14 +317,14 @@ def main():
         rows.append({
             'LABEL': name,
             'LABEL_ID': label_id,
-            'LAST_EMAIL': last_display,
-            'AGE_DAYS': age_days,
-            'MESSAGES': messages,
-            'LEAF': 'yes' if leaf else 'no',
+            'LAST_EMAIL': result['LAST_EMAIL'],
+            'AGE_DAYS': result['AGE_DAYS'],
+            'MESSAGES': result['MESSAGES'],
+            'LEAF': result['LEAF'],
             'VERDICT': verdict,
-            'PROPOSED_NEW_NAME': proposed,
+            'PROPOSED_NEW_NAME': result['PROPOSED_NEW_NAME'],
             'ACTION': action,
-            'NOTE': note,
+            'NOTE': result['NOTE'],
         })
 
     save_cache(cache)

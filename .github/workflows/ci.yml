@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Explicit, minimal token permissions: this workflow only reads the repo and
+# runs tests/lint/the PII scan -- it never needs to write anything.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # No single "production" Python version to float a floor on here (this
+      # is a local CLI toolkit, not a deployed service) -- matrix the dev
+      # machine's version (3.14) against the next LTS-ish floor (3.12) so
+      # version drift shows up here instead of surprising someone on a
+      # different machine. .coveragerc's fail_under headroom exists partly
+      # for the branch-counting drift this can introduce between the two.
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # check-pii.sh scans commit history, so fetch it all rather than the
+          # default shallow clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest)
+        # Run under coverage rather than as a bare `pytest -q`: same tests,
+        # same pass/fail, but it also collects the data the next step checks.
+        # Kept as two steps so a red X is unambiguous -- this one failing
+        # means a test broke, the next one failing means coverage dropped.
+        run: coverage run -m pytest -q
+
+      - name: Coverage (threshold in .coveragerc)
+        run: coverage report
+
+      - name: PII / secret scan
+        # .pii-denylist is gitignored and dev-machine-only, so it's absent
+        # here: check-pii.sh WARNs about that and still runs the portable
+        # structural checks (exit non-zero only on a real FAIL). Only needs
+        # to run once -- it doesn't depend on the Python version -- but
+        # matrix jobs don't share that state, so it runs on every leg; that's
+        # cheap and harmless, not worth a separate job for.
+        run: bash scripts/check-pii.sh --full

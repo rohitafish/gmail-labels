@@ -117,7 +117,8 @@ column, save as CSV.
 | `STALE` | No mail for 2 years. Proposed for archiving. |
 | `EMPTY` | No emails ever. Delete it by hand; the scripts never do. |
 | `ARCHIVED` | Already under an `Old`, and still quiet. Correctly filed. |
-| **`REVIVE`** | **Already under an `Old`, but mail has started arriving again. Proposed to come back up a level.** |
+| `EMPTY (archived)` | Already under an `Old`, and holds no emails at all. |
+| **`REVIVE`** | **Already under an `Old`, but mail has arrived within the last `REVIVE_MONTHS` (6 months by default). Proposed to come back up a level.** |
 | `ARCHIVE CONTAINER` | The `Old` folder itself. Never moved in either direction. |
 | `… (has sub-labels)` | Has children, so it is never renamed — that would orphan them. Its children are handled individually. |
 
@@ -138,13 +139,23 @@ run. Revival can only be triggered by genuinely new mail, since ageing alone
 only ever pushes a label further past the line, so labels cannot oscillate
 between runs.
 
+Archiving and reviving use **different, deliberately asymmetric thresholds**:
+a label archives after `STALE_YEARS` (2 years) of no mail, but only revives
+if mail has arrived within `REVIVE_MONTHS` (6 months) of today. A label
+dormant for, say, 18 months that gets one old email is not offered for
+revival just because it isn't yet 2-years stale — reviving is a much stricter,
+more-recent bar than archiving is. Revival is also a **hard cutoff, with no
+borderline grace zone**: unlike the stale/active line below, there's no
+judgement-call band around the 6-month line.
+
 Pass `--no-revive` to skip archived labels entirely and tidy one-way only.
 That is faster, since checking for revivals roughly doubles the labels
 examined (583 rather than 288 after the first run).
 
-**Borderline rows** — anything within 183 days either side of the 2-year line —
-are flagged in NOTE and defaulted to **SKIP**, whichever side they fall on.
-They already carry a PROPOSED_NEW_NAME, so changing ACTION to `MOVE` is all
+**Borderline rows** (STALE vs ACTIVE only — revival has no borderline band,
+see above) — anything within 183 days either side of the 2-year line — are
+flagged in NOTE and defaulted to **SKIP**, whichever side they fall on. They
+already carry a PROPOSED_NEW_NAME, so changing ACTION to `MOVE` is all
 that's needed to include one.
 
 **Empty labels** are reported as `EMPTY` and never moved. They're clutter
@@ -235,6 +246,7 @@ Settings live at the top of `gmail_common.py`:
 SCOPE_PREFIXES  = ['Dosh', 'Politics', 'Business', 'Computing', 'Journeys', 'Friends']
 STALE_YEARS     = 2
 BORDERLINE_DAYS = 183
+REVIVE_MONTHS   = 6
 ```
 
 `SCOPE_PREFIXES` is a plain "starts with" match, so the emoji and their
@@ -265,9 +277,11 @@ cp scripts/hooks/pre-push .git/hooks/pre-push
 chmod +x .git/hooks/pre-push
 ```
 
-It blocks any push whose commits trip `check-pii.sh`. `git push
---no-verify` bypasses it deliberately if you're certain something's a
-false positive — don't reach for that reflexively.
+It blocks any push whose commits trip `check-pii.sh`, or that fails the
+test suite, drops coverage below its floor, or fails `ruff check` -- see
+**Testing**, below, and CONTRIBUTING.md. `git push --no-verify` bypasses
+it deliberately if you're certain something's a false positive — don't
+reach for that reflexively.
 
 Run it by hand any time:
 
@@ -282,3 +296,23 @@ that's since been decommissioned — one shared denylist across unrelated
 projects meant a term safe in one project's content could collide with
 ordinary language in another's. This repo now runs its own local,
 hand-tuned copy instead, same mechanism, no cross-project blast radius.
+
+---
+
+## Testing
+
+There's a `pytest` suite in `tests/`, with coverage measured via
+`.coveragerc` and linting via `ruff.toml`. None of it needs a real Gmail
+account, network access, or `credentials.json` — it runs entirely against
+a hand-rolled fake Gmail service:
+
+```bash
+./.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+./.venv/bin/coverage run -m pytest -q
+./.venv/bin/coverage report
+./.venv/bin/ruff check .
+```
+
+The pre-push hook above runs all three, plus `check-pii.sh`, on every push.
+See **CONTRIBUTING.md** for the full picture — test conventions, the
+fabricated-label-name rule, and how to submit a change.

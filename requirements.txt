@@ -1,2 +1,7 @@
-google-api-python-client
-google-auth-oauthlib
+# Exact pins (==), not floors (>=): an unpinned dependency lets a fresh
+# `pip install` resolve something the current .venv never actually ran,
+# which is exactly the kind of drift the test suite and CI can't catch
+# because they never see it. Bump these deliberately, in their own commit,
+# when there's a reason to.
+google-api-python-client==2.198.0
+google-auth-oauthlib==1.4.0
