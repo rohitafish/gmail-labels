@@ -129,6 +129,27 @@ def test_dry_run_writes_a_dryrun_suffixed_log(tmp_path, monkeypatch, fake_servic
     assert log_rows[0]['RESULT'] == 'DRY-RUN'
 
 
+def test_a_formula_leading_label_name_is_escaped_in_the_log(tmp_path, monkeypatch, fake_service):
+    """The undo procedure (SETUP-LOCAL.md) has you open this log in a
+    spreadsheet -- a name starting with =/+/-/@ must come through as literal
+    text, not a formula (CWE-1236)."""
+    risky_name = '=cmd|"/c calc"!A1'
+    fake_service.label_list = [make_label(risky_name, 'id-1')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_row(risky_name, 'Old/' + risky_name, 'id-1')])
+
+    _run_main(monkeypatch, fake_service, csv_path)
+
+    log_path = next(tmp_path.glob('apply_log-*-dryrun.csv'))
+    with open(log_path, encoding='utf-8-sig') as fh:
+        log_rows = list(csv.DictReader(fh))
+    assert log_rows[0]['ORIGINAL_NAME'] == "'" + risky_name
+    # NEW_NAME ('Old/=cmd...') doesn't itself START with a formula
+    # character -- only the leading character of a value matters, so this
+    # one is correctly left untouched.
+    assert log_rows[0]['NEW_NAME'] == 'Old/' + risky_name
+
+
 def test_dry_run_reports_each_missing_container_only_once(tmp_path, monkeypatch, fake_service,
                                                             capsys):
     """Two jobs sharing the same missing container should print CREATE once,

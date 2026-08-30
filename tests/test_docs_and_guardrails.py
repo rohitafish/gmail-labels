@@ -23,6 +23,7 @@ from audit import classify
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SETUP_LOCAL = (REPO_ROOT / 'SETUP-LOCAL.md').read_text(encoding='utf-8')
+CONFIG_REFERENCE = (REPO_ROOT / 'wiki-drafts' / 'Configuration-Reference.md').read_text(encoding='utf-8')
 
 
 def _section(text, heading, next_heading_prefix='#'):
@@ -153,6 +154,52 @@ def test_the_tuning_block_quotes_the_live_config_values():
             f"gmail_common.py's real value is {live_value!r} -- the tuning "
             "block has drifted from the actual config."
         )
+
+
+# ---------------------------- wiki's Configuration Reference matches live constants ----------------------------
+
+def test_configuration_reference_wiki_page_quotes_the_live_config_values():
+    """SETUP-LOCAL.md's tuning block has its own drift test above --
+    wiki-drafts/Configuration-Reference.md repeats the same constants in a
+    fuller table and had no equivalent, so it could silently drift the next
+    time one of these changed. Every value in that table happens to be a
+    valid Python literal (a list, a tuple, a string, an int), so the same
+    ast.literal_eval approach works unchanged."""
+    for name, live_value in (
+        ('SCOPE_PREFIXES', gc.SCOPE_PREFIXES),
+        ('STALE_YEARS', gc.STALE_YEARS),
+        ('BORDERLINE_DAYS', gc.BORDERLINE_DAYS),
+        ('REVIVE_MONTHS', gc.REVIVE_MONTHS),
+        ('OLD_NAME', gc.OLD_NAME),
+        ('ARCHIVE_SEGMENTS', gc.ARCHIVE_SEGMENTS),
+        ('CACHE_MAX_AGE_DAYS', gc.CACHE_MAX_AGE_DAYS),
+    ):
+        match = re.search(r'^\|\s*`%s`\s*\|\s*`([^`]+)`' % re.escape(name),
+                          CONFIG_REFERENCE, re.MULTILINE)
+        assert match, (
+            f"wiki-drafts/Configuration-Reference.md's table no longer has a "
+            f"row for {name} -- add one rather than deleting this assertion."
+        )
+        documented_value = ast.literal_eval(match.group(1).strip())
+        assert documented_value == live_value, (
+            f"wiki-drafts/Configuration-Reference.md says {name} = "
+            f"{documented_value!r}, but gmail_common.py's real value is "
+            f"{live_value!r} -- the wiki page has drifted from the actual "
+            "config."
+        )
+
+
+def test_every_gmail_common_config_constant_has_a_configuration_reference_row():
+    """The inverse check: a brand-new tunable constant added to
+    gmail_common.py's CONFIG block should fail here, not silently go
+    undocumented on the wiki page."""
+    documented_names = set(re.findall(r'^\|\s*`([A-Z_]+)`', CONFIG_REFERENCE, re.MULTILINE))
+    live_names = {'SCOPE_PREFIXES', 'STALE_YEARS', 'BORDERLINE_DAYS', 'REVIVE_MONTHS',
+                  'OLD_NAME', 'ARCHIVE_SEGMENTS', 'CACHE_MAX_AGE_DAYS'}
+    assert live_names <= documented_names, (
+        f"{live_names - documented_names} missing from "
+        "wiki-drafts/Configuration-Reference.md's table"
+    )
 
 
 # ---------------------------- installed pre-push hook matches the tracked template ----------------------------

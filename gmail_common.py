@@ -70,6 +70,23 @@ CSV_COLUMNS = [
     'LEAF', 'VERDICT', 'PROPOSED_NEW_NAME', 'ACTION', 'NOTE',
 ]
 
+# Leading characters Excel/Sheets treat as the start of a formula. A label
+# name or note starting with one of these, opened in a spreadsheet (which
+# SETUP-LOCAL.md tells you to do), would otherwise be interpreted as a
+# formula rather than shown as literal text - classic CSV/formula injection.
+FORMULA_LEAD_CHARS = ('=', '+', '-', '@')
+
+
+def csv_safe(value):
+    """Neutralise a value that would otherwise be read as a spreadsheet
+    formula, by prefixing a leading apostrophe -- the standard mitigation,
+    and what Excel/Sheets themselves use to mark a cell as literal text.
+    Non-string values pass through unchanged; only str is ever at risk here.
+    """
+    if isinstance(value, str) and value.startswith(FORMULA_LEAD_CHARS):
+        return "'" + value
+    return value
+
 
 # ------------------------- auth -------------------------
 
@@ -106,12 +123,20 @@ def service(scope, token_filename):
 
 
 def retry(call, tries=6):
-    """Run a Gmail API call, backing off on rate limits and transient errors."""
+    """Run a Gmail API call, backing off on rate limits and transient errors.
+
+    403 is deliberately NOT in this set: a permission/scope problem (a
+    revoked OAuth grant, an insufficient scope) is never going to succeed on
+    retry, and treating it as transient used to burn all `tries` attempts
+    (~30s of backoff) before surfacing -- per label, so a broken run over
+    hundreds of labels could take a very long time to visibly fail. It now
+    raises immediately, the same as a 404.
+    """
     for attempt in range(tries):
         try:
             return call()
         except HttpError as err:
-            transient = err.resp.status in (403, 429, 500, 502, 503, 504)
+            transient = err.resp.status in (429, 500, 502, 503, 504)
             if transient and attempt < tries - 1:
                 time.sleep((2 ** attempt) * 0.5 + random.random())
                 continue

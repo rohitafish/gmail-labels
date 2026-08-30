@@ -89,20 +89,23 @@ cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
 echo "Cloning $WIKI_REPO_URL ..."
-if ! git clone -q "$WIKI_REPO_URL" "$SCRATCH/wiki" 2>/tmp/publish-wiki-clone-err.$$; then
+# The clone-error log lives inside $SCRATCH, not a separate predictable
+# /tmp path -- $SCRATCH is already a securely-created mktemp -d directory,
+# and its own `rm -rf` in the EXIT trap covers this file too, so there's no
+# second temp path to invent or clean up.
+CLONE_ERR="$SCRATCH/clone-err.log"
+if ! git clone -q "$WIKI_REPO_URL" "$SCRATCH/wiki" 2>"$CLONE_ERR"; then
   echo "" >&2
   echo "Failed to clone the wiki repo." >&2
-  if grep -qi "not found\|repository not found\|does not exist" /tmp/publish-wiki-clone-err.$$ 2>/dev/null; then
+  if grep -qi "not found\|repository not found\|does not exist" "$CLONE_ERR" 2>/dev/null; then
     echo "" >&2
     echo "This usually means the wiki hasn't been initialized yet -- GitHub only" >&2
     echo "creates <repo>.wiki.git once the wiki has at least one page. One-time" >&2
     echo "fix: open the repo's Wiki tab on github.com and click 'Create the" >&2
     echo "first page' (any content, even a placeholder), then re-run this script." >&2
   fi
-  rm -f /tmp/publish-wiki-clone-err.$$
   exit 1
 fi
-rm -f /tmp/publish-wiki-clone-err.$$
 
 # ---- 6. symlink guard ----
 # The wiki is public and third-party-editable via GitHub's own wiki editor.

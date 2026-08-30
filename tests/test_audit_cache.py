@@ -137,3 +137,24 @@ def test_save_then_load_round_trips(tmp_path, monkeypatch):
     save_cache(entries)
 
     assert load_cache(refresh=False) == entries
+
+
+def test_a_leftover_tmp_file_from_an_interrupted_write_does_not_affect_loading(
+        tmp_path, monkeypatch):
+    """save_cache() writes to CACHE_FILE + '.tmp' then os.replace()s it over
+    the real path -- a crash/Ctrl-C between those two steps can leave a
+    stray .tmp file behind, but never a truncated real cache file. Pin that
+    load_cache() ignores the leftover .tmp and still sees the last good,
+    fully-written cache."""
+    cache_file = tmp_path / '.audit_cache.json'
+    monkeypatch.setattr(gc, 'CACHE_FILE', str(cache_file))
+    good_entries = {'id-1': {'last': '2026-01-01T00:00:00+00:00', 'messages': 7}}
+    save_cache(good_entries)
+
+    # Simulate a write interrupted after the temp file was created but
+    # before os.replace() ran -- leave a garbage .tmp file next to the good,
+    # already-committed cache.
+    (tmp_path / '.audit_cache.json.tmp').write_text('{not valid json, interrupted mid-write')
+
+    assert load_cache(refresh=False) == good_entries
+    assert cache_file.exists()

@@ -227,12 +227,20 @@ def load_cache(refresh):
 
 
 def save_cache(entries):
-    with open(gc.CACHE_FILE, 'w') as fh:
+    # Atomic write: build the full content in a temp file in the same
+    # directory, then os.replace() it over the real path. os.replace() is a
+    # single filesystem rename, so a crash or Ctrl-C never leaves a
+    # truncated/partial .audit_cache.json -- load_cache() either sees the
+    # old complete file or the new complete one, never a half-written one.
+    cache_path = gc.CACHE_FILE
+    tmp_path = cache_path + '.tmp'
+    with open(tmp_path, 'w') as fh:
         json.dump({
             'version': 1,
             'written': datetime.now(UTC).isoformat(),
             'entries': entries,
         }, fh)
+    os.replace(tmp_path, cache_path)
 
 
 def main():
@@ -331,11 +339,15 @@ def main():
 
     rows.sort(key=lambda r: (r['AGE_DAYS'] == '', -(r['AGE_DAYS'] or 0)))
 
-    # utf-8-sig so Excel opens the emoji label names correctly.
+    # utf-8-sig so Excel opens the emoji label names correctly. Every field
+    # is passed through csv_safe() -- SETUP-LOCAL.md tells you to open this
+    # in Excel/Sheets, and a label name starting with =/+/-/@ would
+    # otherwise be read as a formula rather than shown as literal text.
+    safe_rows = [{key: gc.csv_safe(value) for key, value in row.items()} for row in rows]
     with open(args.out, 'w', newline='', encoding='utf-8-sig') as fh:
         writer = csv.DictWriter(fh, fieldnames=gc.CSV_COLUMNS)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(safe_rows)
 
     print('\n--- SUMMARY ---')
     print('Labels examined                %d  (%d fresh lookups, rest cached)'
