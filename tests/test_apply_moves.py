@@ -327,3 +327,56 @@ def test_refuses_to_write_the_log_over_the_input_csv(tmp_path, monkeypatch, fake
 class _FixedNow:
     def strftime(self, fmt):
         return 'x'  # matches the literal suffix baked into csv_path above
+
+
+# ---------------------------- LABEL_ID vs LABEL ----------------------------
+# The rename is addressed by id. The CSV's LABEL_ID is a snapshot from the
+# audit run; if it has since come to belong to a different label (a label
+# deleted and another created, or a hand-edited row), trusting it would
+# rename the wrong label -- and the log, the only undo record, would say the
+# wrong original name. Gmail's current id for the name is the authority.
+
+
+def test_apply_skips_a_row_whose_label_id_now_belongs_to_another_label(
+        tmp_path, monkeypatch, fake_service):
+    fake_service.label_list = [
+        make_label('Widgets 🧩/A', 'id-a'),
+        make_label('Widgets 🧩/Unrelated', 'id-stale'),   # the CSV's id points here now
+    ]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-stale')])
+
+    _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
+
+    assert 'labels.patch' not in fake_service.calls
+    names = {label['id']: label['name'] for label in fake_service.label_list}
+    assert names['id-stale'] == 'Widgets 🧩/Unrelated'   # untouched
+    assert names['id-a'] == 'Widgets 🧩/A'               # also untouched: skipped, not guessed
+    log_path = next(tmp_path.glob('apply_log-*.csv'))
+    with open(log_path, encoding='utf-8-sig') as fh:
+        row = next(csv.DictReader(fh))
+    assert row['RESULT'] == 'SKIPPED'
+    assert 'LABEL_ID no longer matches' in row['ERROR']
+
+
+def test_apply_uses_the_live_id_when_the_csv_has_none(tmp_path, monkeypatch, fake_service):
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-a')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', label_id='')])
+
+    _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
+
+    names = {label['id']: label['name'] for label in fake_service.label_list}
+    assert names['id-a'] == 'Widgets 🧩/Old/A'
+
+
+def test_apply_renames_when_the_csv_id_matches_the_live_one(tmp_path, monkeypatch, fake_service):
+    """The counterweight: an id that still agrees with Gmail is the normal
+    case and must keep working exactly as before."""
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-a')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-a')])
+
+    _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
+
+    assert fake_service.calls.count('labels.patch') == 1

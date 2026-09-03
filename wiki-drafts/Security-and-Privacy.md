@@ -46,7 +46,13 @@ account never gets committed:
 entire history — for known real values (from a local, gitignored
 `.pii-denylist`) plus generic structural patterns (email addresses, GPS
 coordinates, non-private IPs, SSN-like numbers, UK National Insurance
-numbers and postcodes) as defense in depth. It's wired in two places:
+numbers and postcodes) as defense in depth, and for the two things
+`.gitignore` alone is trusted to keep out: anything shaped like a credential
+(a Google `GOCSPX-` OAuth client secret, a `refresh_token` as stored in
+`token_*.json`, a Google API key, the common vendor key prefixes, a PEM
+private key -- location reported, value never echoed) and `credentials.json`
+/ `token_*.json` / `client_secret*.json` / `.pii-denylist` being tracked in
+git at all. It's wired in two places:
 
 - A **pre-push hook** (`scripts/hooks/pre-push`, copied into `.git/hooks/`
   once per clone) that also runs the test suite, coverage floor, and

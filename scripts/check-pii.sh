@@ -322,6 +322,41 @@ if [ -n "$IP_HITS" ]; then
   done <<< "$IP_HITS"
 fi
 
+# Credentials by known FORMAT -- FAIL. OAuth client secrets (GOCSPX-, what
+# Google issues for the credentials.json this tool needs), Google API keys,
+# refresh tokens as stored in token_*.json, and the common vendor prefixes
+# (Anthropic, OpenAI, AWS, GitHub, Slack) plus PEM private-key headers.
+# Ported from a sibling project's copy of this script.
+#
+# Unlike every PII rule above, this DELIBERATELY DOES NOT ECHO THE MATCH: a
+# leaked credential printed into terminal scrollback or a CI log is a
+# second copy of the thing being contained, so `git grep -l` lists only the
+# commit:path. (The PII rules echo on purpose -- the matched text is the
+# thing that shouldn't be there, and seeing it is how you find it. For a
+# secret the location is enough to act on.) `-e` guards the leading dash of
+# the PRIVATE KEY alternative from being read as an option.
+SECRET_RE='GOCSPX-[A-Za-z0-9_-]{20,}|"refresh_token": *"[A-Za-z0-9_/-]{20,}|"client_secret": *"[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{35}|ya29\.[A-Za-z0-9_-]{30,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+SECRET_HITS="$(echo "$COMMITS" | xargs -I{} git --no-pager grep --no-color -lE -e "$SECRET_RE" {} -- 2>/dev/null)"
+if [ -n "$SECRET_HITS" ]; then
+  HIT=1
+  while IFS= read -r m; do
+    fail "credential matching a known key format in $m -- value withheld; revoke it (Google Cloud console for an OAuth client, or remove the account's access at myaccount.google.com/permissions for a token) and purge from history"
+  done <<< "$SECRET_HITS"
+fi
+
+# The OAuth artefacts tracked at all -- FAIL. .gitignore is the only thing
+# keeping credentials.json and the two token files out of git, and
+# `git add -f` (or an edit to .gitignore) silently defeats it. Matches the
+# bare names at any depth; nothing legitimately tracked has these names.
+SECRET_FILES_TRACKED="$(echo "$COMMITS" | xargs -I{} git --no-pager ls-tree -r --name-only {} 2>/dev/null \
+  | grep -E '(^|/)(credentials\.json|client_secret[^/]*\.json|token_[^/]*\.json|\.pii-denylist)$' | sort -u)"
+if [ -n "$SECRET_FILES_TRACKED" ]; then
+  HIT=1
+  while IFS= read -r m; do
+    fail "a secrets file is tracked in git: $m -- it must stay gitignored (git rm --cached, then purge from history; revoke the OAuth client/token it held)"
+  done <<< "$SECRET_FILES_TRACKED"
+fi
+
 # Office/archive files added anywhere in range -- WARN not FAIL. Git can't
 # grep inside a .xlsx/.docx/.pdf/.zip/etc (they're zips or binary
 # containers), so none of the checks above can see what's in one. This

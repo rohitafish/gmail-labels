@@ -74,7 +74,10 @@ CSV_COLUMNS = [
 # name or note starting with one of these, opened in a spreadsheet (which
 # SETUP-LOCAL.md tells you to do), would otherwise be interpreted as a
 # formula rather than shown as literal text - classic CSV/formula injection.
-FORMULA_LEAD_CHARS = ('=', '+', '-', '@')
+# Tab and carriage return are in the list too (OWASP's CSV-injection
+# guidance): a leading control character can make a cell split or be read
+# as a formula in some importers, and a Gmail label name can contain one.
+FORMULA_LEAD_CHARS = ('=', '+', '-', '@', '\t', '\r')
 
 
 def csv_safe(value):
@@ -90,10 +93,26 @@ def csv_safe(value):
 
 # ------------------------- auth -------------------------
 
+def _write_private(path, text):
+    """Write `text` to `path` as a file that is owner-only from the moment
+    it exists. open(path, 'w') followed by chmod leaves a window in which
+    the file has the umask's default mode (usually world-readable); O_CREAT
+    with an explicit 0o600 doesn't. O_TRUNC covers the re-write case."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as fh:
+        fh.write(text)
+    os.chmod(path, 0o600)   # an existing file keeps its old mode through O_CREAT
+
+
 def service(scope, token_filename):
     """Build a Gmail API client for one scope, reusing a stored token."""
     token_path = os.path.join(HERE, token_filename)
     creds = None
+
+    # Downloads land world-readable. Tighten on every run, not only on the
+    # first-authorisation path below -- the file outlives that one moment.
+    if os.path.exists(CREDENTIALS_FILE):
+        os.chmod(CREDENTIALS_FILE, 0o600)
 
     if os.path.exists(token_path):
         try:
@@ -111,13 +130,10 @@ def service(scope, token_filename):
                     "Follow SETUP-LOCAL.md to create an OAuth client and download it here."
                     % HERE
                 )
-            os.chmod(CREDENTIALS_FILE, 0o600)   # downloads land world-readable
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, [scope])
             print("Opening a browser to authorise scope:\n  %s" % scope)
             creds = flow.run_local_server(port=0)
-        with open(token_path, 'w') as fh:
-            fh.write(creds.to_json())
-        os.chmod(token_path, 0o600)
+        _write_private(token_path, creds.to_json())
 
     return build('gmail', 'v1', credentials=creds, cache_discovery=False)
 
