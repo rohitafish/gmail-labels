@@ -373,3 +373,40 @@ def test_missing_xlsx_exits_with_a_clear_message(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as excinfo:
         vj.main()
     assert 'Missing reference spreadsheet' in str(excinfo.value)
+
+
+# ---------------------------- zip-bomb guard ----------------------------
+
+def test_an_oversized_worksheet_member_is_refused_before_it_is_read(tmp_path, monkeypatch):
+    """read_xlsx checks the member's declared uncompressed size against
+    MAX_MEMBER_BYTES before zf.read() decompresses it into memory. The cap
+    is lowered here so the fixture doesn't have to be 50 MB."""
+    path = tmp_path / 'big.xlsx'
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('xl/worksheets/sheet1.xml', '<worksheet/>' + ' ' * 4096)
+    monkeypatch.setattr(vj, 'MAX_MEMBER_BYTES', 1024)
+
+    with pytest.raises(SystemExit) as excinfo:
+        vj.read_xlsx(path)
+    assert 'Refusing to read' in str(excinfo.value)
+
+
+def test_xml_entity_expansion_in_the_spreadsheet_is_rejected(tmp_path):
+    """defusedxml, not the stdlib parser: a "billion laughs" sharedStrings
+    part must raise rather than expand."""
+    bomb = (
+        '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">'
+        '<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">]>'
+        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<si><t>&lol2;</t></si></sst>'
+    )
+    path = tmp_path / 'bomb.xlsx'
+    with zipfile.ZipFile(path, 'w') as zf:
+        zf.writestr('xl/sharedStrings.xml', bomb)
+        zf.writestr('xl/worksheets/sheet1.xml',
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                    '<sheetData/></worksheet>')
+
+    with pytest.raises(Exception) as excinfo:
+        vj.read_xlsx(path)
+    assert 'defusedxml' in type(excinfo.value).__module__

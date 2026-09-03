@@ -72,7 +72,11 @@ This is the only part I can't do for you — it needs your Google account.
    ```
 
 `credentials.json`, `token_readonly.json` and `token_labels.json` are all
-gitignored. Don't commit or share them.
+gitignored. Don't commit or share them. The scripts create the token files
+owner-only (`0600`) and tighten `credentials.json` to the same on every run;
+the CSVs and `.audit_cache.json` they write are ordinary files, and they
+hold your label names -- keep them local too (`chmod 600 *.csv` if the
+machine has other accounts on it).
 
 ---
 
@@ -96,7 +100,7 @@ re-running is instant. Use `--refresh` to re-read everything from Gmail.
 | Column | Meaning |
 |---|---|
 | LABEL | Current full label path |
-| LABEL_ID | Gmail's internal id — leave alone, the apply step uses it |
+| LABEL_ID | Gmail's internal id — leave alone. The apply step cross-checks it against the label's *current* id and skips the row if they disagree, so a stale or edited id can never rename a different label |
 | LAST_EMAIL | Date of the most recent email carrying that label |
 | AGE_DAYS | How long since that email |
 | MESSAGES | Approximate message count |
@@ -264,7 +268,14 @@ before they reach GitHub: known values from `.pii-denylist` (a gitignored,
 dev-machine-only file — real bank/client names, the same idea as
 `credentials.json` for secrets), plus generic structural patterns (emails,
 GPS coordinates, non-private IPs, SSN-like numbers, UK National Insurance
-numbers and postcodes) as defense in depth. It also warns (doesn't block)
+numbers and postcodes) as defense in depth. It also fails on anything
+shaped like a credential (a Google `GOCSPX-` OAuth client secret, a
+`refresh_token` as stored in `token_*.json`, a Google API key, the common
+Anthropic/OpenAI/AWS/GitHub/Slack key prefixes, a PEM private key) and on
+`credentials.json`, `token_*.json`, `client_secret*.json` or `.pii-denylist`
+being tracked in git at all — `.gitignore` is the only thing keeping those
+out, and `git add -f` silently defeats it. For those two rules it reports
+the location but never echoes the value. It also warns (doesn't block)
 on UK sort codes/mobile numbers and on any `.xlsx`/`.docx`/`.pdf`/etc.
 added in the commits — git can't see inside those, so it's a nudge to
 check by hand, not a substitute for it.
@@ -307,7 +318,7 @@ account, network access, or `credentials.json` — it runs entirely against
 a hand-rolled fake Gmail service:
 
 ```bash
-./.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+./.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 ./.venv/bin/coverage run -m pytest -q
 ./.venv/bin/coverage report
 ./.venv/bin/ruff check .

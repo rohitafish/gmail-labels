@@ -352,3 +352,86 @@ def test_a_commit_made_before_the_offending_content_existed_is_clean_on_its_own(
     result = _run(repo, '--range', baseline_sha)
 
     assert result.returncode == 0
+
+
+# ---------------------------- credentials by format ----------------------------
+# The OAuth artefacts this tool needs (credentials.json holds a GOCSPX-
+# client secret; token_*.json holds a refresh_token) are exactly what a
+# careless `git add -f` or a loosened .gitignore would leak. Neither the
+# denylist (nobody adds their own token to it) nor the PII patterns above
+# can see them, so these rules match the FORMAT. Every value here is
+# synthetic and shaped like the real thing, never a real credential.
+
+
+def test_google_oauth_client_secret_format_fails(repo):
+    rng = _commit_file(repo, 'notes.md',
+                       'secret: GOCSPX-' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N' + '\n')
+
+    result = _run(repo, '--range', rng)
+
+    assert result.returncode == 1
+    assert 'known key format' in result.stdout
+    assert 'GOCSPX-a1B2' not in result.stdout, 'the value must never be echoed'
+
+
+def test_refresh_token_json_field_format_fails(repo):
+    rng = _commit_file(repo, 'dump.json',
+                       '{"refresh_token": "1//0' + 'x' * 40 + '", "scopes": []}\n')
+
+    result = _run(repo, '--range', rng)
+
+    assert result.returncode == 1
+    assert 'known key format' in result.stdout
+
+
+def test_private_key_header_fails(repo):
+    # Concatenated so this source file never itself contains the literal
+    # the rule matches (the scanner reads every commit's tree, including
+    # this one).
+    rng = _commit_file(repo, 'k.pem', '-----BEGIN RSA ' + 'PRIVATE KEY-----\nMIIE\n')
+
+    result = _run(repo, '--range', rng)
+
+    assert result.returncode == 1
+
+
+def test_ordinary_json_and_prose_do_not_trip_the_format_rule(repo):
+    rng = _commit_file(repo, 'ok.json',
+                       '{"scopes": ["https://www.googleapis.com/auth/gmail.readonly"], '
+                       '"client_secret": "", "token_uri": "https://oauth2.googleapis.com/token"}\n')
+
+    result = _run(repo, '--range', rng)
+
+    assert result.returncode == 0
+
+
+@pytest.mark.parametrize('relpath', [
+    'credentials.json', 'token_readonly.json', 'token_labels.json',
+    'client_secret_123.apps.googleusercontent.com.json', 'sub/dir/credentials.json',
+    '.pii-denylist',
+])
+def test_tracked_secret_file_fails_by_name_alone(repo, relpath):
+    """Content-independent: the file being in git at all is the leak, whatever
+    it holds today. The repo fixture gitignores .pii-denylist, so that case
+    has to force-add it -- exactly the mistake this rule exists to catch."""
+    target = repo / relpath
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{}\n')
+    _git(repo, 'add', '-f', relpath)
+    _git(repo, 'commit', '-qm', f'oops {relpath}')
+
+    result = _run(repo, '--range', 'HEAD~1..HEAD')
+
+    assert result.returncode == 1
+    assert 'secrets file is tracked' in result.stdout
+    assert relpath in result.stdout
+
+
+def test_credentials_example_file_is_not_a_tracked_secret(repo):
+    """The names are matched exactly -- documentation about the files, or a
+    redacted example with a different name, must not fire."""
+    rng = _commit_file(repo, 'docs/credentials.example.json', '{"installed": {}}\n')
+
+    result = _run(repo, '--range', rng)
+
+    assert result.returncode == 0
