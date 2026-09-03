@@ -1,0 +1,16 @@
+# Dev-only tooling -- not needed to run audit.py/apply_moves.py/verify_journeys.py
+# themselves, only to develop and verify changes to them. Same
+# edit-here-then-regenerate rule as requirements.in; the constraint line
+# keeps the two resolutions consistent:
+#
+#   pip-compile --generate-hashes --strip-extras -o requirements-dev.txt requirements-dev.in
+#
+# Install both with:
+#   ./.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+-c requirements.txt
+pytest==9.1.1
+ruff==0.16.4
+# Measures what the suite actually reaches (settings in .coveragerc). The
+# pre-push hook and CI both run the suite under it and fail below the
+# threshold there.
+coverage==7.16.0

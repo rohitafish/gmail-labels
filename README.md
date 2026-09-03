@@ -34,7 +34,7 @@ account. The full walkthrough — creating the client, handling Google's
 
 ```bash
 python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
+./.venv/bin/pip install --require-hashes -r requirements.txt
 ```
 
 ## Running it
@@ -70,7 +70,7 @@ for what each one does and the consequence of changing it.
 ## Development and testing
 
 ```bash
-.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 .venv/bin/coverage run -m pytest -q
 .venv/bin/coverage report
 .venv/bin/ruff check .
