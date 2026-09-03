@@ -72,7 +72,11 @@ This is the only part I can't do for you — it needs your Google account.
    ```
 
 `credentials.json`, `token_readonly.json` and `token_labels.json` are all
-gitignored. Don't commit or share them.
+gitignored. Don't commit or share them. The scripts create the token files
+owner-only (`0600`) and tighten `credentials.json` to the same on every run;
+the CSVs and `.audit_cache.json` they write are ordinary files, and they
+hold your label names -- keep them local too (`chmod 600 *.csv` if the
+machine has other accounts on it).
 
 ---
 
