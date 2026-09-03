@@ -14,7 +14,7 @@ import pytest
 import gmail_common as gc
 
 
-@pytest.mark.parametrize('leading_char', ['=', '+', '-', '@'])
+@pytest.mark.parametrize('leading_char', ['=', '+', '-', '@', '\t', '\r'])
 def test_csv_safe_prefixes_every_formula_leading_character(leading_char):
     value = leading_char + 'cmd|"/c calc"!A1'
     assert gc.csv_safe(value) == "'" + value

@@ -227,3 +227,55 @@ def test_list_user_labels_keeps_only_user_type_labels(fake_service):
         {'id': 'id-1', 'name': 'Widgets 🧩'},
         {'id': 'id-2', 'name': 'Widgets 🧩/Vendors'},
     ]
+
+
+def test_the_token_file_is_owner_only_from_creation_not_chmod_after(_sandbox, monkeypatch):
+    """With the umask cleared, open(path, 'w') would create a 0666 file and
+    only a later chmod would tighten it -- a window in which the refresh
+    token is world-readable. _write_private creates it 0600 outright, so
+    this passes with no chmod-after at all."""
+    old_umask = os.umask(0)
+    try:
+        (_sandbox['tmp_path'] / 'credentials.json').write_text('{"installed": {}}')
+        monkeypatch.setattr(gc.Credentials, 'from_authorized_user_file',
+                            staticmethod(lambda p, s: (_ for _ in ()).throw(ValueError('none'))))
+        monkeypatch.setattr(gc.InstalledAppFlow, 'from_client_secrets_file',
+                            staticmethod(lambda p, s: _FakeFlow(_FakeCreds(valid=True))))
+        monkeypatch.setattr(gc.os, 'chmod', lambda *a, **kw: None)  # prove creation mode alone suffices
+
+        gc.service(gc.SCOPE_READONLY, 'token_readonly.json')
+    finally:
+        os.umask(old_umask)
+
+    assert _perm(_sandbox['tmp_path'] / 'token_readonly.json') == 0o600
+
+
+def test_credentials_json_is_tightened_even_when_no_oauth_flow_runs(_sandbox, monkeypatch):
+    """A valid stored token skips the browser flow entirely -- which is
+    where the chmod used to live, so a world-readable credentials.json
+    stayed that way on every ordinary run."""
+    creds_path = _sandbox['tmp_path'] / 'credentials.json'
+    creds_path.write_text('{"installed": {}}')
+    creds_path.chmod(0o644)
+    (_sandbox['tmp_path'] / 'token_readonly.json').write_text('{"stub": "token"}')
+    monkeypatch.setattr(gc.Credentials, 'from_authorized_user_file',
+                        staticmethod(lambda path, scopes: _FakeCreds(valid=True)))
+
+    gc.service(gc.SCOPE_READONLY, 'token_readonly.json')
+
+    assert _perm(creds_path) == 0o600
+
+
+def test_rewriting_an_existing_token_file_tightens_a_loose_mode(_sandbox, monkeypatch):
+    token_path = _sandbox['tmp_path'] / 'token_readonly.json'
+    token_path.write_text('{"stub": "old"}')
+    token_path.chmod(0o644)
+    (_sandbox['tmp_path'] / 'credentials.json').write_text('{"installed": {}}')
+    creds = _FakeCreds(valid=False, expired=True, refresh_token='rt-1')
+    monkeypatch.setattr(gc.Credentials, 'from_authorized_user_file',
+                        staticmethod(lambda path, scopes: creds))
+
+    gc.service(gc.SCOPE_READONLY, 'token_readonly.json')
+
+    assert token_path.read_text() == '{"fake": "creds"}'
+    assert _perm(token_path) == 0o600

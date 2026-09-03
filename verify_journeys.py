@@ -6,8 +6,10 @@ Verification: diff a fresh Journeys audit against the hand-checked spreadsheet.
     python3 verify_journeys.py journeys_audit.csv
 
 Compares label coverage, VERDICT and last-email date against
-"Gmail label audit - Journeys.xlsx". Reads the xlsx with the standard library
-only - it is a zip of XML, no third-party reader needed.
+"Gmail label audit - Journeys.xlsx". Reads the xlsx as what it is - a zip of
+XML - with zipfile plus defusedxml (rather than the stdlib parser: the file
+is your own, but a spreadsheet is an easy thing to be handed by someone
+else, and the entity-expansion class of XML attack costs nothing to close).
 
 Note the two audits measure slightly different things. The spreadsheet used
 thread dates (the last message of the newest thread carrying the label, which
@@ -20,15 +22,30 @@ import csv
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
 import zipfile
 from datetime import date, datetime, timedelta
+
+from defusedxml.ElementTree import fromstring
 
 import gmail_common as gc
 
 NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
 XLSX = os.path.join(gc.HERE, 'Gmail label audit - Journeys.xlsx')
 EXCEL_EPOCH = date(1899, 12, 30)
+
+# A worksheet of a few hundred label rows is tens of KB. A member claiming
+# far more than that is a zip bomb, not a spreadsheet -- refuse rather than
+# decompress it into memory.
+MAX_MEMBER_BYTES = 50 * 1024 * 1024
+
+
+def _read_member(zf, name):
+    """zf.read(name), after checking the declared uncompressed size."""
+    size = zf.getinfo(name).file_size
+    if size > MAX_MEMBER_BYTES:
+        sys.exit('Refusing to read %s: %s claims %d bytes uncompressed (limit %d).'
+                 % (zf.filename, name, size, MAX_MEMBER_BYTES))
+    return zf.read(name)
 
 
 def read_xlsx(path):
@@ -37,12 +54,12 @@ def read_xlsx(path):
 
     shared = []
     try:
-        root = ET.fromstring(zf.read('xl/sharedStrings.xml'))
+        root = fromstring(_read_member(zf, 'xl/sharedStrings.xml'))
         shared = [''.join(t.text or '' for t in si.iter(NS + 't')) for si in root]
     except KeyError:
         pass
 
-    sheet = ET.fromstring(zf.read('xl/worksheets/sheet1.xml'))
+    sheet = fromstring(_read_member(zf, 'xl/worksheets/sheet1.xml'))
     rows = []
     for row in sheet.iter(NS + 'row'):
         cells = {}

@@ -12,3 +12,4 @@
 # in its PRs. See CONTRIBUTING.md's "Dependencies".
 google-api-python-client==2.199.0
 google-auth-oauthlib==1.4.1
+defusedxml==0.7.1  # verify_journeys.py parses the reference .xlsx's XML with it
