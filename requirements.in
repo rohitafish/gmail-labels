@@ -1,0 +1,14 @@
+# Direct runtime dependencies, exact pins. This is the file a human edits;
+# requirements.txt is GENERATED from it by pip-compile and carries every
+# transitive dependency with sha256 hashes, so `pip install --require-hashes
+# -r requirements.txt` installs exactly the bytes the suite and CI ran
+# against -- not whatever an unpinned transitive (there are ~30 behind these
+# two) or a tampered release would resolve to that day. Bump a pin here,
+# then regenerate:
+#
+#   pip-compile --generate-hashes --strip-extras -o requirements.txt requirements.in
+#
+# Dependabot understands this layout and regenerates requirements.txt itself
+# in its PRs. See CONTRIBUTING.md's "Dependencies".
+google-api-python-client==2.199.0
+google-auth-oauthlib==1.4.1

@@ -307,7 +307,7 @@ account, network access, or `credentials.json` — it runs entirely against
 a hand-rolled fake Gmail service:
 
 ```bash
-./.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+./.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 ./.venv/bin/coverage run -m pytest -q
 ./.venv/bin/coverage report
 ./.venv/bin/ruff check .
