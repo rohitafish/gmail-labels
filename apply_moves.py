@@ -99,12 +99,25 @@ def main():
     for job in jobs:
         old, new = job['old'], job['new']
 
-        label_id = job['id'] or id_by_name.get(old)
-        if not label_id or old not in existing:
+        # The live id for this name wins over the CSV's LABEL_ID. The rename
+        # is addressed by id, so a stale or hand-edited LABEL_ID that now
+        # belongs to some other label would rename THAT label -- and the log
+        # below (the only undo record) would then say the wrong original
+        # name. If the CSV carries an id, it must agree with Gmail's; a
+        # mismatch is skipped rather than guessed at.
+        live_id = id_by_name.get(old)
+        if not live_id:
             print('SKIP    %s  (label no longer exists in Gmail)' % old)
             results.append((old, new, 'SKIPPED', 'label no longer exists'))
             failed += 1
             continue
+        if job['id'] and job['id'] != live_id:
+            print('SKIP    %s  (LABEL_ID %s in the CSV no longer matches this label, '
+                  'which is now %s - re-run audit.py)' % (old, job['id'], live_id))
+            results.append((old, new, 'SKIPPED', 'LABEL_ID no longer matches LABEL'))
+            failed += 1
+            continue
+        label_id = live_id
 
         if new in existing:
             print('SKIP    %s  ->  %s  (target already exists)' % (old, new))
