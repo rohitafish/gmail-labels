@@ -96,7 +96,7 @@ re-running is instant. Use `--refresh` to re-read everything from Gmail.
 | Column | Meaning |
 |---|---|
 | LABEL | Current full label path |
-| LABEL_ID | Gmail's internal id — leave alone, the apply step uses it |
+| LABEL_ID | Gmail's internal id — leave alone. The apply step cross-checks it against the label's *current* id and skips the row if they disagree, so a stale or edited id can never rename a different label |
 | LAST_EMAIL | Date of the most recent email carrying that label |
 | AGE_DAYS | How long since that email |
 | MESSAGES | Approximate message count |
