@@ -3,7 +3,7 @@
 # edit-here-then-regenerate rule as requirements.in; the constraint line
 # keeps the two resolutions consistent:
 #
-#   pip-compile --generate-hashes --strip-extras -o requirements-dev.txt requirements-dev.in
+#   uv pip compile --universal --generate-hashes -o requirements-dev.txt requirements-dev.in
 #
 # Install both with:
 #   ./.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
