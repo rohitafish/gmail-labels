@@ -9,7 +9,7 @@
 #   ./.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 -c requirements.txt
 pytest==9.1.1
-ruff==0.16.4
+ruff==0.16.5
 # Measures what the suite actually reaches (settings in .coveragerc). The
 # pre-push hook and CI both run the suite under it and fail below the
 # threshold there.
