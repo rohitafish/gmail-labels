@@ -264,7 +264,14 @@ before they reach GitHub: known values from `.pii-denylist` (a gitignored,
 dev-machine-only file — real bank/client names, the same idea as
 `credentials.json` for secrets), plus generic structural patterns (emails,
 GPS coordinates, non-private IPs, SSN-like numbers, UK National Insurance
-numbers and postcodes) as defense in depth. It also warns (doesn't block)
+numbers and postcodes) as defense in depth. It also fails on anything
+shaped like a credential (a Google `GOCSPX-` OAuth client secret, a
+`refresh_token` as stored in `token_*.json`, a Google API key, the common
+Anthropic/OpenAI/AWS/GitHub/Slack key prefixes, a PEM private key) and on
+`credentials.json`, `token_*.json`, `client_secret*.json` or `.pii-denylist`
+being tracked in git at all — `.gitignore` is the only thing keeping those
+out, and `git add -f` silently defeats it. For those two rules it reports
+the location but never echoes the value. It also warns (doesn't block)
 on UK sort codes/mobile numbers and on any `.xlsx`/`.docx`/`.pdf`/etc.
 added in the commits — git can't see inside those, so it's a nudge to
 check by hand, not a substitute for it.

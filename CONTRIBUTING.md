@@ -49,7 +49,10 @@ the suite runs entirely against a hand-rolled fake Gmail service
 - **`scripts/check-pii.sh`** scans the commits you're about to push -- and,
   with `--full`, all of history -- for known real values and structural PII
   (emails, GPS coordinates, non-private IPs, SSN-like numbers, UK National
-  Insurance numbers and postcodes).
+  Insurance numbers and postcodes), for anything shaped like a credential
+  (Google OAuth client secrets and refresh tokens, the common vendor key
+  prefixes, PEM private keys -- reported by location, never echoed), and for
+  `credentials.json` / `token_*.json` / `.pii-denylist` being tracked at all.
 - **`.pii-denylist`** (repo root, gitignored, per-machine) is where exact
   real values live -- one literal string per line, same idea as
   `credentials.json`/the token files for secrets. It is never committed. A
