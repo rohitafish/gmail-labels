@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Template for .git/hooks/pre-commit -- git hooks are never cloned or synced,
 # so this has to be copied into place by hand on each dev machine (same as
-# scripts/hooks/pre-push; SETUP-LOCAL.md's "PII check" section has the
-# install step):
+# scripts/hooks/pre-push; SETUP-LOCAL.md's "PII and secret checks" section
+# has the install step):
 #
 #   cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 #

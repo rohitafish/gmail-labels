@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Template for .git/hooks/pre-push -- git hooks are never cloned or synced,
 # so this has to be copied into place by hand on each dev machine (see
-# SETUP-LOCAL.md's "PII check" section for the one-time install step):
+# SETUP-LOCAL.md's "PII and secret checks" section for the one-time install
+# step):
 #
 #   cp scripts/hooks/pre-push .git/hooks/pre-push
 #   chmod +x .git/hooks/pre-push
