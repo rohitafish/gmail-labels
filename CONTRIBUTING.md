@@ -208,7 +208,8 @@ contribution goes through a fork:
 
 CI (`ruff`, `pytest` under `coverage` with its floor enforced, and the
 PII/secret scan, matrixed across Python 3.12 and 3.14, plus a `gitleaks`
-scan of the full history in its own job) runs automatically on your PR and
+scan in its own job -- of your PR's commits on a PR, of the whole
+repository on the weekly schedule) runs automatically on your PR and
 must pass before it can be merged.
 
 For security vulnerabilities, do **not** open a public issue or PR — see
