@@ -16,6 +16,7 @@ import re
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
 from conftest import utc
 
 import gmail_common as gc
@@ -202,17 +203,23 @@ def test_every_gmail_common_config_constant_has_a_configuration_reference_row():
     )
 
 
-# ---------------------------- installed pre-push hook matches the tracked template ----------------------------
+# ---------------------------- installed hooks match the tracked templates ----------------------------
 
-def test_installed_pre_push_hook_matches_the_tracked_template():
-    installed = REPO_ROOT / '.git' / 'hooks' / 'pre-push'
-    template = REPO_ROOT / 'scripts' / 'hooks' / 'pre-push'
+# Both hooks are copied into .git/hooks by hand (git never clones hooks), so
+# the copy and the template drift apart silently: the template gets a new
+# scanner, the installed copy keeps running the old one, and nothing says so.
+# Skipped rather than failed when a hook isn't installed at all -- that's a
+# fresh clone, not drift.
+
+@pytest.mark.parametrize('hook', ['pre-commit', 'pre-push'])
+def test_installed_hook_matches_the_tracked_template(hook):
+    installed = REPO_ROOT / '.git' / 'hooks' / hook
+    template = REPO_ROOT / 'scripts' / 'hooks' / hook
 
     if not installed.exists():
-        import pytest
-        pytest.skip('pre-push hook not installed on this machine (see SETUP-LOCAL.md)')
+        pytest.skip(f'{hook} hook not installed on this machine (see SETUP-LOCAL.md)')
 
     assert filecmp.cmp(installed, template, shallow=False), (
-        ".git/hooks/pre-push has drifted from scripts/hooks/pre-push -- "
-        "re-copy it: cp scripts/hooks/pre-push .git/hooks/pre-push"
+        f".git/hooks/{hook} has drifted from scripts/hooks/{hook} -- "
+        f"re-copy it: cp scripts/hooks/{hook} .git/hooks/{hook}"
     )

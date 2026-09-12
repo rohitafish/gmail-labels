@@ -83,6 +83,12 @@ the suite runs entirely against a hand-rolled fake Gmail service
 
 ## Privacy: read this first
 
+Two scanners, running in the same three places (pre-commit, pre-push, CI),
+because each is blind to what the other catches. `check-pii.sh` knows this
+mailbox's *real values* -- names a generic tool could never guess.
+`gitleaks` knows *credential formats* -- including ones this repo has never
+seen and nobody has listed anywhere.
+
 - **`scripts/check-pii.sh`** scans the commits you're about to push -- and,
   with `--full`, all of history -- for known real values and structural PII
   (emails, GPS coordinates, non-private IPs, SSN-like numbers, UK National
@@ -90,19 +96,37 @@ the suite runs entirely against a hand-rolled fake Gmail service
   (Google OAuth client secrets and refresh tokens, the common vendor key
   prefixes, PEM private keys -- reported by location, never echoed), and for
   `credentials.json` / `token_*.json` / `.pii-denylist` being tracked at all.
+- **`gitleaks`** (config: `.gitleaks.toml`, upstream default rules) scans
+  the same content for credential *shapes*. Install it -- `brew install
+  gitleaks` -- because both hooks **fail closed** without it: a scanner that
+  never ran reporting nothing is not the same as a clean scan. A monthly
+  workflow (`.github/workflows/secrets-monthly.yml`) additionally runs
+  TruffleHog, which *verifies* candidates against the issuing provider; a
+  finding there means a live credential is in the public history, so revoke
+  first and investigate second.
 - **`.pii-denylist`** (repo root, gitignored, per-machine) is where exact
   real values live -- one literal string per line, same idea as
   `credentials.json`/the token files for secrets. It is never committed. A
   fresh clone starts without it; the structural pattern checks still run.
-- **Install the pre-push hook once per clone** (git does not clone hooks):
+  **`scripts/pii-denylist-sync.sh`** keeps its auto-managed block in step
+  with the live label tree, so the list doesn't quietly fall behind the
+  mailbox it is meant to describe; anything you write above the marker line
+  is yours and is never rewritten. SETUP-LOCAL.md documents the filters it
+  applies (an ordinary word like `Travel` is a real label segment and would
+  block every future commit that used it, so candidates have to earn their
+  place).
+- **Install both hooks once per clone** (git does not clone hooks):
 
   ```bash
-  cp scripts/hooks/pre-push .git/hooks/pre-push
-  chmod +x .git/hooks/pre-push
+  cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+  cp scripts/hooks/pre-push   .git/hooks/pre-push   && chmod +x .git/hooks/pre-push
   ```
 
-  It blocks any push that fails the tests, drops coverage below the floor,
-  fails `ruff check`, or trips `check-pii.sh`.
+  **pre-commit** runs both scanners over the index, so a real value is
+  stopped before it exists in any commit -- the difference between deleting
+  a line and rewriting history. **pre-push** is the backstop: both scanners
+  over the outgoing commits, plus the tests, the coverage floor and `ruff
+  check`.
 
 ### The one rule the tooling can't enforce
 
@@ -125,9 +149,11 @@ learn of a real value that must never reappear, add it to your local
 (Plain `.venv/bin/pytest` also works if you just want the tests without the
 coverage gate.) All must pass; the pre-push hook runs them too. Please add
 or update tests for behaviour you change -- the suite is thorough,
-including a dedicated `tests/test_check_pii.py` for the privacy guard
-itself and `tests/test_docs_and_guardrails.py` for keeping SETUP-LOCAL.md
-in sync with the code.
+including dedicated modules for the privacy guardrails themselves
+(`tests/test_check_pii.py`, `tests/test_pii_denylist_sync.py`,
+`tests/test_pre_commit_hook.py`, `tests/test_pre_push_hook.py`) and
+`tests/test_docs_and_guardrails.py` for keeping SETUP-LOCAL.md in sync with
+the code and the installed hooks in sync with their templates.
 
 CI also enforces a **coverage floor** -- see `.coveragerc`'s `fail_under`.
 It's a ratchet, not a target: if your change legitimately can't reach it,
@@ -181,8 +207,9 @@ contribution goes through a fork:
 6. Open a pull request against this repo's `main` branch.
 
 CI (`ruff`, `pytest` under `coverage` with its floor enforced, and the
-PII/secret scan, matrixed across Python 3.12 and 3.14) runs automatically on
-your PR and must pass before it can be merged.
+PII/secret scan, matrixed across Python 3.12 and 3.14, plus a `gitleaks`
+scan of the full history in its own job) runs automatically on your PR and
+must pass before it can be merged.
 
 For security vulnerabilities, do **not** open a public issue or PR — see
 [SECURITY.md](SECURITY.md).

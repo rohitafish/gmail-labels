@@ -24,6 +24,10 @@
 #   scripts/check-pii.sh --full           # every commit reachable from any
 #                                          # ref -- the whole history, not
 #                                          # just what's about to move
+#   scripts/check-pii.sh --staged         # the index, i.e. what `git commit`
+#                                          # is about to record (the pre-commit
+#                                          # hook) -- a value stopped here
+#                                          # never exists in any commit at all
 #
 # Denylist entries (.pii-denylist, sibling to this script's parent dir)
 # match as a case-insensitive literal SUBSTRING by default -- fine for
@@ -91,7 +95,17 @@ RANGE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --full) MODE="full"; shift ;;
-    --range) RANGE="$2"; shift 2 ;;
+    --staged) MODE="staged"; shift ;;
+    --range)
+      # Without this check, --range as the LAST argument makes `shift 2`
+      # silently fail (only one argument left to shift) and return non-zero
+      # -- with no `set -e` here, $# never reaches 0 and the while loop
+      # above spins forever burning a CPU core, with no output and no hint
+      # what happened.
+      [ $# -ge 2 ] || { echo "--range requires an argument" >&2; exit 2; }
+      RANGE="$2"
+      shift 2
+      ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -137,6 +151,15 @@ fi
 if [ "$MODE" = "full" ]; then
   COMMITS="$(git rev-list --all 2>/dev/null)"
   LABEL="full history"
+elif [ "$MODE" = "staged" ]; then
+  # The index as a tree object: every `git grep <tree>` / `git ls-tree <tree>`
+  # below then works on the staged content unchanged, with no temporary
+  # commit and nothing written to refs. (write-tree only creates an object;
+  # it is garbage-collected like any other unreferenced blob.) The one rule
+  # that can't take a tree is the office/archive-file WARN, which asks what
+  # a commit ADDED -- it gets `git diff --cached` instead, further down.
+  COMMITS="$(git write-tree 2>/dev/null)"
+  LABEL="staged changes"
 else
   COMMITS="$(git rev-list "$RANGE" 2>/dev/null)"
   LABEL="range $RANGE"
@@ -363,7 +386,16 @@ fi
 # repo already gitignores a real .xlsx of label data for exactly this
 # reason -- this is a nudge to check any *new* one by hand, not a
 # substitute for that.
-BINARY_HITS="$(echo "$COMMITS" | xargs -I{} git diff-tree --no-commit-id --name-status -r {} 2>/dev/null \
+# In --staged mode there is no commit to diff against its parent, so ask the
+# index what it adds over HEAD instead; `git diff-tree <tree>` would silently
+# produce nothing at all, which is the quiet-pass failure mode this script
+# exists to avoid.
+if [ "$MODE" = "staged" ]; then
+  BINARY_RAW="$(git diff --cached --name-status 2>/dev/null)"
+else
+  BINARY_RAW="$(echo "$COMMITS" | xargs -I{} git diff-tree --no-commit-id --name-status -r {} 2>/dev/null)"
+fi
+BINARY_HITS="$(printf '%s\n' "$BINARY_RAW" \
   | awk '$1 == "A" {print $2}' \
   | grep -iE '\.(xlsx|xls|docx|doc|pdf|zip|key|numbers|pages)$')"
 if [ -n "$BINARY_HITS" ]; then

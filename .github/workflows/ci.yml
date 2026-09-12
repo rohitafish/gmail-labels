@@ -86,3 +86,24 @@ jobs:
         # matrix jobs don't share that state, so it runs on every leg; that's
         # cheap and harmless, not worth a separate job for.
         run: bash scripts/check-pii.sh --full
+
+  # Credential-shape scan of the whole history with gitleaks (config in
+  # .gitleaks.toml). Complements check-pii.sh, which is the layer that knows
+  # this mailbox's real identifiers (the bank, client and family names in
+  # label paths) -- a generic secrets scanner cannot tell a real surname
+  # from an invented one, so those live in the gitignored .pii-denylist and
+  # never reach CI. This job is the backstop for what the pre-commit/pre-push
+  # hooks would have caught on a machine where the hook was not installed.
+  #
+  # Its own job, not a step in `test` above: it doesn't depend on Python at
+  # all, so running it on both matrix legs would be pure duplication.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0   # gitleaks walks the history, not just HEAD
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
