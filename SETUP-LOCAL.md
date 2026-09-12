@@ -300,7 +300,9 @@ brew install gitleaks
 ```
 
 Its ruleset lives in `.gitleaks.toml` (the upstream defaults, nothing
-exempted). CI runs it over the whole history on every push and PR, and a
+exempted). CI runs it on every push and PR — over that range, the same
+scope the hooks check — and over the *whole* repository on the weekly
+schedule or when you run the CI workflow by hand from the Actions tab. A
 monthly workflow additionally runs TruffleHog, which *verifies* candidate
 credentials against the issuing provider — a finding there means a live,
 working credential is in the public history. If that ever fires: revoke
