@@ -435,3 +435,91 @@ def test_credentials_example_file_is_not_a_tracked_secret(repo):
     result = _run(repo, '--range', rng)
 
     assert result.returncode == 0
+
+
+# ---------------------------- --staged: the index, for the pre-commit hook ----------------------------
+
+# The pre-commit hook's whole point is that a real value stopped here never
+# exists in any commit at all, so these cases stage content without ever
+# committing it.
+
+def test_staged_mode_catches_a_denylisted_value_before_any_commit_exists(repo):
+    _write_denylist(repo, 'brambleworth\n')
+    (repo / 'notes.md').write_text('the brambleworth account\n')
+    _git(repo, 'add', 'notes.md')
+
+    result = _run(repo, '--staged')
+
+    assert result.returncode == 1
+    assert 'staged changes' in result.stdout
+    assert 'brambleworth' in result.stdout  # named, so you can find it
+
+
+def test_staged_mode_ignores_work_that_is_not_staged(repo):
+    """Written to the working tree but never `git add`ed -- the index is
+    what a commit would record, so this must not block one."""
+    _write_denylist(repo, 'brambleworth\n')
+    (repo / 'notes.md').write_text('the brambleworth account\n')
+
+    result = _run(repo, '--staged')
+
+    assert result.returncode == 0, result.stdout
+    assert 'staged changes: clean' in result.stdout
+
+
+def test_staged_mode_catches_a_structural_pattern_too(repo):
+    """Not just the denylist: the generic rules run against the index as
+    well, which is what catches a value nobody has thought to list yet."""
+    ssn = '123' + '-45-' + '6789'
+    (repo / 'oops.py').write_text('EXAMPLE = "%s"\n' % ssn)
+    _git(repo, 'add', 'oops.py')
+
+    result = _run(repo, '--staged')
+
+    assert result.returncode == 1
+    assert 'SSN-like number' in result.stdout
+
+
+def test_staged_mode_flags_a_staged_office_file(repo):
+    """The office/archive WARN asks what a commit ADDS, which is the one
+    rule that can't read a bare tree -- in --staged mode it has to come
+    from `git diff --cached` instead. A regression here is silent (the rule
+    just stops firing), so it gets its own case."""
+    (repo / 'accounts.xlsx').write_bytes(b'PK\x03\x04 not really a spreadsheet\n')
+    _git(repo, 'add', 'accounts.xlsx')
+
+    result = _run(repo, '--staged')
+
+    assert 'office/archive file added: accounts.xlsx' in result.stdout
+    assert result.returncode == 0  # a WARN, not a FAIL
+
+
+def test_staged_mode_leaves_no_ref_behind(repo):
+    """--staged writes a tree object to scan it; it must not create a
+    commit, move a branch, or otherwise touch refs."""
+    before = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=repo,
+                            capture_output=True, text=True, check=True).stdout
+    (repo / 'notes.md').write_text('nothing interesting\n')
+    _git(repo, 'add', 'notes.md')
+
+    _run(repo, '--staged')
+
+    after = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=repo,
+                           capture_output=True, text=True, check=True).stdout
+    assert before == after
+    status = subprocess.run(['git', 'status', '--porcelain'], cwd=repo,
+                            capture_output=True, text=True, check=True).stdout
+    assert status.strip() == 'A  notes.md'  # still staged, still uncommitted
+
+
+def test_range_as_the_last_argument_is_a_usage_error_not_a_hang(repo):
+    """`--range` with nothing after it used to make `shift 2` fail, leaving
+    $# stuck above zero and the argument loop spinning forever with no
+    output. It must exit 2 instead."""
+    result = subprocess.run(
+        ['bash', 'scripts/check-pii.sh', '--range'],
+        cwd=repo, capture_output=True, text=True, timeout=30,
+    )
+
+    assert result.returncode == 2
+    assert '--range requires an argument' in result.stderr

@@ -40,6 +40,19 @@ exit 0
 '''
 RUFF_STUB = '#!/usr/bin/env bash\nexit "${RUFF_EXIT_CODE:-0}"\n'
 
+# gitleaks is found on PATH, not in .venv/bin, so it gets a stub of its own
+# in a directory prepended to PATH. Stubbed rather than really run: the real
+# binary isn't installed on a CI runner, and these tests are about the
+# hook's gating, not about gitleaks' own detection (the hook fails closed
+# when it's absent, which has its own test below).
+GITLEAKS_STUB = '#!/usr/bin/env bash\nexit "${GITLEAKS_EXIT_CODE:-0}"\n'
+
+# A PATH with no gitleaks on it, for the fails-closed case. Spelled as real
+# system directories rather than an empty PATH because the hook still needs
+# git: /usr/bin/git exists on both a stock Mac and an ubuntu runner, and
+# gitleaks (a Homebrew/manual install) never lives in either of these.
+PATH_WITHOUT_GITLEAKS = '/usr/bin:/bin:/usr/sbin:/sbin'
+
 
 def _git(repo, *args):
     subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
@@ -80,6 +93,16 @@ def _install_venv_stubs(repo, which):
         path.chmod(0o755)
 
 
+def _install_gitleaks_stub(repo):
+    """Returns a PATH with a stub gitleaks in front of the real one."""
+    bindir = repo / 'fakebin'
+    bindir.mkdir(exist_ok=True)
+    stub = bindir / 'gitleaks'
+    stub.write_text(GITLEAKS_STUB)
+    stub.chmod(0o755)
+    return '%s:%s' % (bindir, os.environ['PATH'])
+
+
 def _run_hook(repo, env_overrides=None):
     """Feeds the hook a single push line for a brand-new branch (remote_sha
     all-zeros), so RANGE becomes just `local_sha` -- a real, valid range
@@ -89,6 +112,7 @@ def _run_hook(repo, env_overrides=None):
     ).stdout.strip()
     stdin = 'refs/heads/main %s refs/heads/main %s\n' % (local_sha, ZERO)
     env = dict(os.environ)
+    env['PATH'] = _install_gitleaks_stub(repo)
     env.update(env_overrides or {})
     return subprocess.run(
         ['bash', 'scripts/hooks/pre-push'],
@@ -166,3 +190,31 @@ def test_blocks_on_a_real_pii_finding_even_when_all_tooling_passes(hook_repo):
 
     assert result.returncode == 1
     assert 'check-pii.sh' in result.stderr
+
+
+# ---------------------------- the gitleaks layer ----------------------------
+
+def test_blocks_when_gitleaks_finds_a_credential(hook_repo):
+    """check-pii.sh and gitleaks are two layers, not one: the denylist knows
+    this mailbox's real values, gitleaks knows credential formats nobody has
+    listed anywhere. A finding from either one has to block."""
+    _install_venv_stubs(hook_repo, ['pytest', 'coverage', 'ruff'])
+
+    result = _run_hook(hook_repo, {'GITLEAKS_EXIT_CODE': '1'})
+
+    assert result.returncode == 1
+    assert 'gitleaks found a credential' in result.stderr
+
+
+def test_blocks_when_gitleaks_is_not_installed(hook_repo):
+    """Fails CLOSED, unlike the dev-tooling checks above. A scanner that
+    isn't there reports nothing, and "no findings" from a scanner that never
+    ran is the exact false comfort this hook exists to remove -- so an
+    uninstalled gitleaks blocks the push and says how to fix it."""
+    _install_venv_stubs(hook_repo, ['pytest', 'coverage', 'ruff'])
+
+    result = _run_hook(hook_repo, {'PATH': PATH_WITHOUT_GITLEAKS})
+
+    assert result.returncode == 1
+    assert 'gitleaks is not installed' in result.stderr
+    assert 'brew install gitleaks' in result.stderr

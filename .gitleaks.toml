@@ -1,0 +1,24 @@
+# gitleaks configuration for this repo (credential shapes: OAuth client
+# secrets, refresh tokens, API keys, private keys). It runs in the
+# pre-commit hook on the index, in the pre-push hook on the outgoing
+# commits, and in CI on every push and PR.
+#
+# This is the second of the two scanning layers, not a replacement for the
+# first: scripts/check-pii.sh is the layer that knows this mailbox's real
+# identifiers (bank, client and family names in label paths), and a generic
+# secrets scanner cannot tell a real surname from an invented one -- those
+# live in the gitignored .pii-denylist and never reach CI. gitleaks is the
+# converse: it knows credential FORMATS this repo has never seen before,
+# which a denylist by definition cannot. See CONTRIBUTING.md's "Privacy and
+# secrets" section.
+title = "gmail-labels"
+
+[extend]
+useDefault = true
+
+# No path allowlist. The tracked fixtures that talk about credentials
+# (tests/test_check_pii.py) deliberately build their example values by
+# concatenating fragments, so they never form a matchable key in the source
+# -- which is why the whole history scans clean under the default rules
+# with nothing exempted. Add a path here only for a file that genuinely
+# must carry a placeholder in one piece, and say which value and why.

@@ -261,7 +261,16 @@ exactly and that name carries an emoji. Add it to `ARCHIVE_SEGMENTS` first.
 
 ---
 
-## PII check (one-time, before your first push)
+## PII and secret checks (one-time, before your first push)
+
+Two scanners, not one, because they fail in opposite directions.
+`scripts/check-pii.sh` knows *this mailbox's* real values — the bank,
+client and family names that make up your label paths — which no generic
+tool could ever guess. `gitleaks` knows *credential formats* — including
+ones this repo has never seen and nobody has thought to list. Each is
+blind to what the other catches, so the hooks and CI run both.
+
+### 1. `check-pii.sh` — this mailbox's own values
 
 `scripts/check-pii.sh` scans commits for real personal/financial data
 before they reach GitHub: known values from `.pii-denylist` (a gitignored,
@@ -280,26 +289,84 @@ on UK sort codes/mobile numbers and on any `.xlsx`/`.docx`/`.pdf`/etc.
 added in the commits — git can't see inside those, so it's a nudge to
 check by hand, not a substitute for it.
 
-Install the pre-push hook once per dev-machine clone (hooks aren't
-cloned/synced by git):
+### 2. `gitleaks` — credential shapes
+
+Install it once per dev machine — the hooks below **fail closed** without
+it, because a scanner that never ran reporting nothing is not the same as
+a clean scan:
 
 ```bash
-cp scripts/hooks/pre-push .git/hooks/pre-push
-chmod +x .git/hooks/pre-push
+brew install gitleaks
 ```
 
-It blocks any push whose commits trip `check-pii.sh`, or that fails the
-test suite, drops coverage below its floor, or fails `ruff check` -- see
-**Testing**, below, and CONTRIBUTING.md. `git push --no-verify` bypasses
-it deliberately if you're certain something's a false positive — don't
-reach for that reflexively.
+Its ruleset lives in `.gitleaks.toml` (the upstream defaults, nothing
+exempted). CI runs it over the whole history on every push and PR, and a
+monthly workflow additionally runs TruffleHog, which *verifies* candidate
+credentials against the issuing provider — a finding there means a live,
+working credential is in the public history. If that ever fires: revoke
+first (the OAuth client in the Google Cloud console, or the grant at
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions)),
+then worry about rewriting history.
 
-Run it by hand any time:
+### 3. Install both hooks
+
+Once per dev-machine clone — git never clones or syncs hooks:
+
+```bash
+cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+cp scripts/hooks/pre-push   .git/hooks/pre-push   && chmod +x .git/hooks/pre-push
+```
+
+**pre-commit** runs both scanners against the *index* — what the commit is
+about to record. A value stopped there never exists in any commit at all,
+which is the difference between deleting a line and rewriting history.
+
+**pre-push** is the backstop: both scanners again over the commits actually
+going out, plus the test suite, the coverage floor and `ruff check` — see
+**Testing**, below, and CONTRIBUTING.md.
+
+`git commit --no-verify` / `git push --no-verify` bypass them deliberately
+if you're certain something's a false positive — don't reach for that
+reflexively.
+
+Run the scans by hand any time:
 
 ```bash
 ./scripts/check-pii.sh            # commits about to be pushed
+./scripts/check-pii.sh --staged   # the index, i.e. what a commit would record
 ./scripts/check-pii.sh --full     # this repo's entire history
+gitleaks git --redact .           # credential shapes, whole history
 ```
+
+### 4. Keep the denylist in step with the label tree
+
+A denylist that knows a fraction of your real values catches a fraction of
+your leaks, and a hand-maintained one drifts the moment you add a label.
+`scripts/pii-denylist-sync.sh` reads the label tree itself — the
+authoritative list of the names that matter — and refreshes the
+auto-managed block at the bottom of `.pii-denylist`:
+
+```bash
+./scripts/pii-denylist-sync.sh --dry-run    # what would change, writes nothing
+./scripts/pii-denylist-sync.sh              # apply
+```
+
+Anything you wrote above the marker line is yours and is never touched; the
+block below it is rewritten whole each run, so a label you have deleted
+drops back out. It reads the live tree over the existing read-only token
+(`--from-csv label_audit.csv` works offline instead), and it prints counts
+only, never a value, unless you ask with `--show-skipped`.
+
+Not every label segment becomes a term. `Travel` and `Receipts` are real
+segments and also ordinary English: denylisting one would block every
+future commit that used the word. So a candidate has to survive four
+filters — at least four characters, not an ordinary dictionary word, not
+already present in the repo's tracked content, and not listed in
+`.pii-denylist-skip` (gitignored, one term per line, your permanent "not
+that one"). The run reports how many fell to each. Worth skimming
+`--show-skipped` the first time: the *already in tracked content* count is
+the interesting one, since a real leak would show up there rather than
+being quietly added to a list that then fails on it.
 
 This used to be handled by a machine-wide hook (`~/.pii-guardrail/`,
 covering every repo on the dev machine via git's global `core.hooksPath`)
@@ -324,6 +391,7 @@ a hand-rolled fake Gmail service:
 ./.venv/bin/ruff check .
 ```
 
-The pre-push hook above runs all three, plus `check-pii.sh`, on every push.
+The pre-push hook above runs all three, plus `check-pii.sh` and `gitleaks`,
+on every push.
 See **CONTRIBUTING.md** for the full picture — test conventions, the
 fabricated-label-name rule, and how to submit a change.
