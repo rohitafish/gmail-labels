@@ -54,8 +54,11 @@ GITLEAKS_STUB = '#!/usr/bin/env bash\nexit "${GITLEAKS_EXIT_CODE:-0}"\n'
 PATH_WITHOUT_GITLEAKS = '/usr/bin:/bin:/usr/sbin:/sbin'
 
 
+# core.hooksPath=/dev/null -- see the note in tests/test_check_pii.py: a
+# developer's global hooks fire in these throwaway repos too.
 def _git(repo, *args):
-    subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
+    subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', *args],
+                   cwd=repo, check=True, capture_output=True)
 
 
 @pytest.fixture

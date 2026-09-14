@@ -111,7 +111,13 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$MODE" = "range" ] && [ -z "$RANGE" ]; then
-  UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+  # --verify -q, not a bare --abbrev-ref with `|| true`: when the upstream
+  # cannot be resolved (configured but its remote-tracking ref is missing,
+  # e.g. right after a remote was recreated), git prints the literal "@{u}"
+  # on stdout AND exits 128, so the old form captured "@{u}" as a real
+  # upstream and the run then worked on the unresolvable range "@{u}..HEAD"
+  # instead of falling back. Ported from the sibling project's 9b97fff.
+  UPSTREAM="$(git rev-parse --verify -q --abbrev-ref '@{u}' 2>/dev/null)" || UPSTREAM=""
   if [ -n "$UPSTREAM" ]; then
     RANGE="$UPSTREAM..HEAD"
   elif git rev-parse --verify origin/main >/dev/null 2>&1; then
@@ -148,8 +154,12 @@ else
   warn ".pii-denylist not found -- skipping known-value checks; generic pattern checks still run."
 fi
 
+# 2>&1, not 2>/dev/null: the error text is wanted in $COMMITS for the FAIL
+# message below, and the exit status is what distinguishes "could not resolve"
+# from "resolved fine, and it is empty".
 if [ "$MODE" = "full" ]; then
-  COMMITS="$(git rev-list --all 2>/dev/null)"
+  COMMITS="$(git rev-list --all 2>&1)"
+  REV_LIST_STATUS=$?
   LABEL="full history"
 elif [ "$MODE" = "staged" ]; then
   # The index as a tree object: every `git grep <tree>` / `git ls-tree <tree>`
@@ -158,14 +168,32 @@ elif [ "$MODE" = "staged" ]; then
   # it is garbage-collected like any other unreferenced blob.) The one rule
   # that can't take a tree is the office/archive-file WARN, which asks what
   # a commit ADDED -- it gets `git diff --cached` instead, further down.
-  COMMITS="$(git write-tree 2>/dev/null)"
+  COMMITS="$(git write-tree 2>&1)"
+  REV_LIST_STATUS=$?
   LABEL="staged changes"
 else
-  COMMITS="$(git rev-list "$RANGE" 2>/dev/null)"
+  COMMITS="$(git rev-list "$RANGE" 2>&1)"
+  REV_LIST_STATUS=$?
   LABEL="range $RANGE"
 fi
 
 echo "== PII check: $LABEL =="
+
+# An unresolvable range (git rev-list exits non-zero -- e.g. a local sha the
+# remote advertised that this checkout has never fetched, or the literal
+# "@{u}" that a missing upstream used to produce above) is NOT the same thing
+# as a genuinely empty range. Treating them the same meant a run whose range
+# could not be resolved sailed through with ZERO scanning while printing a
+# green "nothing to check" -- reported clean while carrying real values, which
+# is the exact shape this script exists to prevent, one level up. Ported from
+# the sibling project, which has had this guard since the --staged work.
+if [ "$REV_LIST_STATUS" -ne 0 ]; then
+  fail "$LABEL: could not resolve commit range ($COMMITS)"
+  echo
+  echo "== Summary =="
+  echo "  $FAILS FAIL(s)"
+  exit 1
+fi
 
 if [ -z "$COMMITS" ]; then
   ok "$LABEL: nothing to check (no commits in range)"

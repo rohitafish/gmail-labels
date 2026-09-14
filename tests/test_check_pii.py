@@ -46,8 +46,17 @@ def _real_denylist_untouched():
     assert before == after, 'a test modified the real .pii-denylist -- it escaped tmp_path'
 
 
+# core.hooksPath=/dev/null: these fixtures are throwaway repos whose commits
+# never leave the machine, but a developer's *global* hooks still fire in them.
+# This machine has a global commit-msg hook that rejects any author email that
+# is not the GitHub noreply address -- so the fixture identity used below made
+# every fixture commit fail, erroring 80 tests and blocking pushes, while CI
+# (which has no such hook) stayed green. A test repo should not depend on how
+# the person running it configures git. Same fix as the sibling project's
+# commit e0b113f.
 def _git(repo, *args):
-    subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
+    subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', *args],
+                   cwd=repo, check=True, capture_output=True)
 
 
 @pytest.fixture
@@ -523,3 +532,47 @@ def test_range_as_the_last_argument_is_a_usage_error_not_a_hang(repo):
 
     assert result.returncode == 2
     assert '--range requires an argument' in result.stderr
+
+
+# ---------------------------- an unresolvable range must not pass quietly ----------------------------
+
+def test_an_unresolvable_range_fails_instead_of_reporting_nothing_to_check(repo):
+    """Regression test. A range git cannot resolve used to produce an empty
+    commit list, which the "nothing to check" branch reported as `ok` with
+    exit 0 -- a run that scanned nothing while printing green. That is the
+    same "reported clean while carrying real values" shape this script
+    exists to prevent, one level up, so it has to be a loud FAIL."""
+    bogus = 'deadbeef' * 5
+
+    result = _run(repo, '--range', f'{bogus}..HEAD')
+
+    assert result.returncode == 1
+    assert 'could not resolve commit range' in result.stdout
+    assert 'nothing to check' not in result.stdout
+
+
+def test_a_genuinely_empty_range_still_passes(repo):
+    """The other side of the guard above: a range that resolves fine and is
+    simply empty is not an error, and must stay a green no-op rather than
+    becoming a FAIL."""
+    result = _run(repo, '--range', 'HEAD..HEAD')
+
+    assert result.returncode == 0, result.stdout
+    assert 'nothing to check' in result.stdout
+
+
+def test_default_mode_with_an_unresolvable_upstream_falls_back(repo):
+    """Regression test: with an upstream configured but its remote-tracking
+    ref missing (a recreated remote, before the first fetch), `git rev-parse
+    --abbrev-ref @{u}` prints the literal "@{u}" and exits non-zero. The
+    script used to keep that text as the upstream, which -- now that an
+    unresolvable range FAILs rather than passing quietly -- would turn every
+    default-mode run into a failure. It must fall back instead."""
+    _git(repo, 'config', 'branch.main.remote', 'origin')
+    _git(repo, 'config', 'branch.main.merge', 'refs/heads/main')
+
+    result = _run(repo)
+
+    assert result.returncode == 0, result.stdout
+    assert '@{u}' not in result.stdout
+    assert 'full history' in result.stdout

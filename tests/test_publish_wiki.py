@@ -29,8 +29,11 @@ SCRIPT = REPO_ROOT / 'scripts' / 'publish-wiki.sh'
 CHECK_PII = REPO_ROOT / 'scripts' / 'check-pii.sh'
 
 
+# core.hooksPath=/dev/null -- see the note in tests/test_check_pii.py: a
+# developer's global hooks fire in these throwaway repos too.
 def _git(repo, *args, env=None):
-    subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', *args],
+                   cwd=repo, check=True, capture_output=True, env=env)
 
 
 def _isolated_env(tmp_path):
@@ -76,7 +79,8 @@ def _seed_bare_wiki(tmp_path, name='wiki.git', files=None):
     with an initial commit via a scratch working clone (mirroring how a
     real GitHub wiki always starts with at least one page)."""
     bare = tmp_path / name
-    subprocess.run(['git', 'init', '--bare', '-q', '-b', 'master', str(bare)],
+    subprocess.run(['git', '-c', 'core.hooksPath=/dev/null',
+                    'init', '--bare', '-q', '-b', 'master', str(bare)],
                     check=True, capture_output=True)
 
     seed = tmp_path / (name + '-seed')
@@ -99,6 +103,16 @@ def _seed_bare_wiki(tmp_path, name='wiki.git', files=None):
 def _run(repo, wiki_url, stdin_input, args=(), env=None):
     full_env = dict(env or os.environ)
     full_env['WIKI_REPO_URL'] = str(wiki_url)
+    # The script commits inside the wiki clone itself, so disabling hooks in
+    # this file's own _git helper isn't enough -- the override has to reach
+    # every git the script spawns, which is what these three documented
+    # variables do. Needed because a fixture identity (author@example.com) is
+    # exactly what this machine's global commit-msg hook rejects; a real run
+    # commits under the repo's real noreply identity and passes it fine, so
+    # this is a test-fixture concern, not a defect in the script.
+    full_env['GIT_CONFIG_COUNT'] = '1'
+    full_env['GIT_CONFIG_KEY_0'] = 'core.hooksPath'
+    full_env['GIT_CONFIG_VALUE_0'] = '/dev/null'
     return subprocess.run(
         ['bash', 'scripts/publish-wiki.sh', *args],
         cwd=repo, input=stdin_input, capture_output=True, text=True, env=full_env,
