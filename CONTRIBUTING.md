@@ -96,6 +96,10 @@ seen and nobody has listed anywhere.
   (Google OAuth client secrets and refresh tokens, the common vendor key
   prefixes, PEM private keys -- reported by location, never echoed), and for
   `credentials.json` / `token_*.json` / `.pii-denylist` being tracked at all.
+- **`scripts/check-pii.sh` is shared with the `assetmgt` project** — the same
+  engine byte for byte, with this repo's specifics in
+  `scripts/check-pii.conf`. Change it with `scripts/sync-check-pii.sh` and run
+  both suites; the drift test in `tests/test_check_pii_shared.py` enforces it.
 - **`gitleaks`** (config: `.gitleaks.toml`, upstream default rules) scans
   the same content for credential *shapes*. Install it -- `brew install
   gitleaks` -- because both hooks **fail closed** without it: a scanner that

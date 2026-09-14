@@ -289,6 +289,17 @@ on UK sort codes/mobile numbers and on any `.xlsx`/`.docx`/`.pdf`/etc.
 added in the commits — git can't see inside those, so it's a nudge to
 check by hand, not a substitute for it.
 
+`check-pii.sh` itself is a **shared engine**: the same file, byte for byte,
+as the one in the `assetmgt` project, with everything repo-specific in
+`scripts/check-pii.conf` beside it — where this repo turns on the UK
+identifier rules, names the files that must never be tracked, and points at
+its sibling. Move the engine between the two with `scripts/sync-check-pii.sh`
+(`--push` / `--pull`), never by hand, and run both repos' suites after
+changing it; `tests/test_check_pii_shared.py` fails while the copies differ.
+That arrangement exists because the previous one — two copies kept in step by
+hand — let three fixes land in one repo and not the other, including a silent
+false-clean that stood for two days.
+
 ### 2. `gitleaks` — credential shapes
 
 Install it once per dev machine — the hooks below **fail closed** without

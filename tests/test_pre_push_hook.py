@@ -23,6 +23,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / 'scripts' / 'hooks' / 'pre-push'
 CHECK_PII = REPO_ROOT / 'scripts' / 'check-pii.sh'
+# ...and the conf beside it: check-pii.sh is a shared engine (byte-identical
+# in assetmgt), so without its configuration it runs under conservative
+# defaults rather than this repo's rules.
+CHECK_PII_CONF = REPO_ROOT / 'scripts' / 'check-pii.conf'
 
 ZERO = '0' * 40
 
@@ -76,6 +80,7 @@ def hook_repo(tmp_path):
     shutil.copy(HOOK, repo / 'scripts' / 'hooks' / 'pre-push')
     (repo / 'scripts' / 'hooks' / 'pre-push').chmod(0o755)
     shutil.copy(CHECK_PII, repo / 'scripts' / 'check-pii.sh')
+    shutil.copy(CHECK_PII_CONF, repo / 'scripts' / 'check-pii.conf')
     (repo / 'scripts' / 'check-pii.sh').chmod(0o755)
 
     (repo / 'README.md').write_text('hello\n')
