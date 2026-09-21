@@ -13,4 +13,4 @@ ruff==0.16.8
 # Measures what the suite actually reaches (settings in .coveragerc). The
 # pre-push hook and CI both run the suite under it and fail below the
 # threshold there.
-coverage==7.16.0
+coverage==7.16.1
