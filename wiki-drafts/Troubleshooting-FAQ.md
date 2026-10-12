@@ -13,6 +13,20 @@ your data or the audit logic is affected.
 
 ---
 
+**A run fails with `deleted_client`.** Google automatically deletes an OAuth
+client that hasn't been used for six months, and emails the project's
+contact address 30 days beforehand. This is a tool you might only run once
+or twice a year, so it can happen. For about 30 days after deletion you can
+restore the client from the
+[Deleted credentials](https://console.cloud.google.com/apis/credentials/deleted)
+page. Past that, create a new client as in SETUP-LOCAL.md step 5 and replace
+`credentials.json`. If a run still fails, delete `token_readonly.json` and
+`token_labels.json` and authorise again. To stop it happening, run
+`./run audit.py` every few months: any run counts as use. Labels and mail
+aren't touched by any of this; only the scripts' access is.
+
+---
+
 **`apply_moves.py` reported a `FAILED` row instead of `DONE`.** Check the
 `ERROR` column of the timestamped `apply_log-*.csv` it wrote. A `409` usually
 means the target name was created by something else between the audit and

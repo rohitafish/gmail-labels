@@ -70,7 +70,19 @@ This is the only part I can't do for you — it needs your Google account.
      would only pick up the extra agent access controls. The choice can't be
      changed once the client exists: if you ever want an agent on Workspace
      MCP, give it a separate client of its own.
-   - **Create**, then **Download JSON**.
+   - **Create**, then **Download JSON** straight away. Google shows the
+     client secret only at creation: close that dialog without downloading
+     and the console never offers the full file again, so you'd have to add
+     a new secret to the client (or create a new client) and download that.
+
+   Google automatically deletes a client that hasn't been used for six
+   months, and emails you 30 days beforehand. Any audit or apply run counts
+   as use, so running `./run audit.py` every few months keeps it alive. If a
+   run ever fails with `deleted_client`, restore the client from
+   **https://console.cloud.google.com/apis/credentials/deleted** (possible
+   for about 30 days), or past that, repeat this step for a new client and
+   replace `credentials.json`. Either way, if it still fails, delete
+   `token_readonly.json` / `token_labels.json` and re-authorise.
 
 6. Save that file into this folder as exactly **`credentials.json`**:
 
