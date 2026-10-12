@@ -63,7 +63,8 @@ This is the only part I can't do for you — it needs your Google account.
    **Create client**.
    - Application type: **Desktop app**
    - Name: anything
-   - Agentic (AI agent): **leave it off**. That setting is for clients that
+   - **Use this client for an AI-powered agent**: leave this box
+     **unticked**. That setting is for clients that
      AI agents use to call Google's Workspace MCP servers. These scripts are
      an ordinary app on the plain Gmail REST API, and an agentic client
      would only pick up the extra agent access controls. The choice can't be
