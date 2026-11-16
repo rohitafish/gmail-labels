@@ -47,11 +47,21 @@ proposed for anything, only reported.
 
 ---
 
+**`apply_moves.py --apply` refuses to run, saying the CSV is from an old
+audit.** The apply step cannot read mail, so it cannot see whether a label
+queued for archiving has received mail since the audit. Past
+`CACHE_MAX_AGE_DAYS` (7 days by default) it stops rather than guess. Re-run
+`./run audit.py` and review the new CSV. If you really do want the old one
+applied, add `--allow-old-csv`.
+
+---
+
 **The first run against a large mailbox is slow.** Every label with no cache
 entry needs a fresh Gmail API lookup, paced with a small delay to stay
 inside rate limits. A first run over several hundred labels can take a
-few minutes; subsequent runs within `CACHE_MAX_AGE_DAYS` (7 days by default)
-reuse `.audit_cache.json` and are close to instant. Pass `--no-revive` to
+few minutes; subsequent runs reuse `.audit_cache.json` and are close to
+instant, until each date is `CACHE_MAX_AGE_DAYS` (7 days by default) old and
+its label is read again. Pass `--no-revive` to
 skip archived labels entirely if you only need a one-way tidy — checking for
 revivals roughly doubles the labels examined.
 

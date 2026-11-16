@@ -201,7 +201,9 @@ def make_label(name, label_id=None):
 
 
 def make_cache_entry(last=None, messages=0):
-    """One .audit_cache.json entry: {'last': iso_or_None, 'messages': int}."""
+    """One .audit_cache.json entry: {'last': iso_or_None, 'messages': int}.
+    Real entries also carry 'fetched'; without it the cache's 'written' time
+    stands in."""
     return {'last': last.isoformat() if last else None, 'messages': messages}
 
 

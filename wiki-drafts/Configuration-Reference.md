@@ -14,7 +14,7 @@ this page as due for an update.
 | `REVIVE_MONTHS` | `6` | An archived label is only proposed for revival if it has received mail within this many months — deliberately a much tighter, more recent bar than `STALE_YEARS`. Hard cutoff, no borderline zone. |
 | `OLD_NAME` | `'Old'` | Name used when a new archive sub-label has to be created. An existing `Old` or `zOld` at the right level is always reused first. |
 | `ARCHIVE_SEGMENTS` | `('old', 'zold')` | Path segments (case-insensitive, exact match) that mark a label as already archived. A label with any of these as a segment is left entirely alone by the archiving side, and only considered for revival. |
-| `CACHE_MAX_AGE_DAYS` | `7` | Cached last-email dates in `.audit_cache.json` older than this are discarded and every label re-read, so a run months later can never judge staleness on dates it never re-read. |
+| `CACHE_MAX_AGE_DAYS` | `7` | A cached last-email date in `.audit_cache.json` is discarded and its label re-read once it is this many days past the day it was read from Gmail, so staleness is never judged on an old date however often the audit runs. `apply_moves.py --apply` uses the same limit to refuse an audit CSV that is too old (override with `--allow-old-csv`). |
 
 ## Two gotchas worth knowing before changing anything
 

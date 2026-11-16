@@ -7,7 +7,10 @@ gc.retry(...).execute() rather than logic worth testing in isolation.
 """
 
 import csv
+import os
 import sys
+import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import http_error, make_label
@@ -316,17 +319,147 @@ def test_refuses_to_write_the_log_over_the_input_csv(tmp_path, monkeypatch, fake
     fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1')]
     csv_path = tmp_path / 'apply_log-x.csv'
     _write_csv(csv_path, [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1')])
-    monkeypatch.setattr(apply_moves, 'datetime',
-                        type('_D', (), {'now': staticmethod(lambda: _FixedNow())}))
+    # Matches the literal suffix baked into csv_path above.
+    monkeypatch.setattr(apply_moves.time, 'strftime', lambda fmt: 'x')
 
     with pytest.raises(SystemExit) as excinfo:
         _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
     assert 'Refusing to write the log' in str(excinfo.value)
+    assert 'labels.patch' not in fake_service.calls   # refused before renaming
 
 
-class _FixedNow:
-    def strftime(self, fmt):
-        return 'x'  # matches the literal suffix baked into csv_path above
+def test_the_log_survives_a_run_that_dies_part_way_through(tmp_path, monkeypatch,
+                                                           fake_service, capsys):
+    """Only HttpError is handled per row. Anything else (a dropped
+    connection, Ctrl-C) ends the run -- and the renames already made must
+    still be in the log, which is why it is written row by row."""
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1'),
+                               make_label('Widgets 🧩/B', 'id-2'),
+                               make_label('Widgets 🧩/Old', 'id-old')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1'),
+                          _row('Widgets 🧩/B', 'Widgets 🧩/Old/B', 'id-2')])
+    fake_service.queue_error('labels.patch', None)                  # first rename works
+    fake_service.queue_error('labels.patch', ConnectionError('gone'))
+
+    with pytest.raises(ConnectionError):
+        _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
+
+    log_path = next(tmp_path.glob('apply_log-*.csv'))
+    with open(log_path, encoding='utf-8-sig') as fh:
+        logged = list(csv.reader(fh))
+    assert logged == [['ORIGINAL_NAME', 'NEW_NAME', 'RESULT', 'ERROR'],
+                      ['Widgets 🧩/A', 'Widgets 🧩/Old/A', 'DONE', '']]
+    out = capsys.readouterr().out
+    assert 'STOPPED EARLY after 1 rename(s)' in out
+    assert str(log_path) in out
+
+
+def test_dry_run_summary_does_not_count_skipped_rows_as_renames(tmp_path, monkeypatch,
+                                                                fake_service, capsys):
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1'),
+                               make_label('Widgets 🧩/Old', 'id-old')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1'),
+                          _row('Widgets 🧩/Gone', 'Widgets 🧩/Old/Gone', 'id-9')])
+
+    _run_main(monkeypatch, fake_service, csv_path)
+
+    assert ('1 rename(s) and 0 new container(s) would happen; 1 row(s) would be skipped'
+            in capsys.readouterr().out)
+
+
+# ---------------------------- an old audit CSV ----------------------------
+# The labels scope cannot read mail, so apply_moves cannot see that a label
+# has had mail since the audit. It refuses to --apply an old audit instead.
+
+def _dated_row(label, new_name, label_id, audited_days_ago, age_days=900):
+    """A row as audit.py would have written it `audited_days_ago` days ago."""
+    today = datetime.now(UTC).date()
+    last_email = today - timedelta(days=audited_days_ago + age_days)
+    row = _row(label, new_name, label_id)
+    row.update(LAST_EMAIL=last_email.isoformat(), AGE_DAYS=age_days)
+    return row
+
+
+def test_audit_age_comes_from_the_rows_not_the_file_time(tmp_path):
+    """Editing ACTION weeks later refreshes the file's mtime; the age must
+    not move with it."""
+    csv_path = tmp_path / 'audit.csv'
+    rows = [_row('Widgets 🧩/Empty', ''),                       # no date: passed over
+            _dated_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1', audited_days_ago=40)]
+    _write_csv(csv_path, rows)                                  # mtime is now
+
+    assert apply_moves.audit_age_days(csv_path, rows) == 40
+
+
+def test_audit_age_falls_back_to_the_file_time_when_no_row_has_a_date(tmp_path):
+    csv_path = tmp_path / 'audit.csv'
+    rows = [_row('Widgets 🧩/A', 'Widgets 🧩/Old/A'),
+            dict(_row('Widgets 🧩/B', ''), LAST_EMAIL='30/08/2026', AGE_DAYS='78')]
+    _write_csv(csv_path, rows)
+    ten_days_ago = time.time() - 10 * 86400
+    os.utime(csv_path, (ten_days_ago, ten_days_ago))
+
+    assert apply_moves.audit_age_days(csv_path, rows) in (10, 11)   # UTC date edge
+
+
+def test_apply_refuses_an_old_audit_csv_and_changes_nothing(tmp_path, monkeypatch,
+                                                            fake_service):
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_dated_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1',
+                                     audited_days_ago=gc.CACHE_MAX_AGE_DAYS + 1)])
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
+
+    assert '--allow-old-csv' in str(excinfo.value)
+    assert fake_service.calls == []
+    assert list(tmp_path.glob('apply_log-*.csv')) == []
+
+
+def test_apply_accepts_an_audit_csv_exactly_at_the_limit(tmp_path, monkeypatch,
+                                                         fake_service):
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1'),
+                               make_label('Widgets 🧩/Old', 'id-old')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_dated_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1',
+                                     audited_days_ago=gc.CACHE_MAX_AGE_DAYS)])
+
+    _run_main(monkeypatch, fake_service, csv_path, argv_extra=['--apply'])
+
+    assert 'labels.patch' in fake_service.calls
+
+
+def test_allow_old_csv_applies_an_old_audit_with_a_warning(tmp_path, monkeypatch,
+                                                           fake_service, capsys):
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1'),
+                               make_label('Widgets 🧩/Old', 'id-old')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_dated_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1',
+                                     audited_days_ago=60)])
+
+    _run_main(monkeypatch, fake_service, csv_path,
+              argv_extra=['--apply', '--allow-old-csv'])
+
+    assert 'labels.patch' in fake_service.calls
+    assert 'WARNING' in capsys.readouterr().out
+
+
+def test_dry_run_of_an_old_audit_csv_warns_but_still_runs(tmp_path, monkeypatch,
+                                                          fake_service, capsys):
+    fake_service.label_list = [make_label('Widgets 🧩/A', 'id-1')]
+    csv_path = tmp_path / 'audit.csv'
+    _write_csv(csv_path, [_dated_row('Widgets 🧩/A', 'Widgets 🧩/Old/A', 'id-1',
+                                     audited_days_ago=60)])
+
+    _run_main(monkeypatch, fake_service, csv_path)
+
+    out = capsys.readouterr().out
+    assert 'from an audit 60 days ago' in out
+    assert '--apply will refuse this CSV' in out
+    assert 'Re-run with --apply' not in out
 
 
 # ---------------------------- LABEL_ID vs LABEL ----------------------------

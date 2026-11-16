@@ -175,12 +175,28 @@ def last_message(svc, label_id):
     return when, estimate
 
 
+def _parse_utc(value):
+    """An aware datetime from an ISO string, or None if it isn't one."""
+    try:
+        when = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return when if when.tzinfo else None
+
+
 def load_cache(refresh):
     """Cached dates from a recent run, or {} if absent, stale or unreadable.
 
-    Anything older than CACHE_MAX_AGE_DAYS is thrown away. Without that, a run
-    six months from now would happily reuse today's dates and call a label
-    stale on the strength of mail it never re-read.
+    Anything read from Gmail more than CACHE_MAX_AGE_DAYS ago is thrown away.
+    Without that, a run six months from now would happily reuse today's dates
+    and call a label stale on the strength of mail it never re-read.
+
+    Age is judged per entry, on its own 'fetched' time. The envelope's
+    'written' time is refreshed by every run, including one that looked
+    nothing up, so on its own it let a date survive indefinitely as long as
+    the audit was run at least once a week. It is now only the fallback for
+    an entry with no 'fetched' of its own (a cache written before entries
+    carried one).
     """
     if refresh or not os.path.exists(gc.CACHE_FILE):
         return {}
@@ -193,19 +209,9 @@ def load_cache(refresh):
     if not isinstance(blob, dict) or blob.get('version') != 1:
         return {}                       # older format - discard rather than trust
 
-    try:
-        written = datetime.fromisoformat(blob['written'])
-    except (KeyError, TypeError, ValueError):
+    written = _parse_utc(blob.get('written'))
+    if written is None:
         return {}
-
-    age_days = (datetime.now(UTC) - written).days
-    if age_days > gc.CACHE_MAX_AGE_DAYS:
-        print('Cache is %d days old (limit %d) - re-reading every label.'
-              % (age_days, gc.CACHE_MAX_AGE_DAYS))
-        return {}
-
-    print('Reusing cached dates from %s (%d days old).'
-          % (written.date(), age_days))
 
     entries = blob.get('entries', {})
     if not isinstance(entries, dict):
@@ -215,14 +221,31 @@ def load_cache(refresh):
     # missing 'last' (hand-edited, or written by a future version) would
     # otherwise raise KeyError deep in the per-label loop. Drop just that
     # one entry so its label is re-read fresh, not the whole cache.
+    now = datetime.now(UTC)
     valid = {}
+    expired = 0
+    oldest = None
     for label_id, entry in entries.items():
         if not isinstance(entry, dict) or 'last' not in entry:
             continue
+        fetched = _parse_utc(entry.get('fetched')) or written
+        if (now - fetched).days > gc.CACHE_MAX_AGE_DAYS:
+            expired += 1
+            continue
+        if oldest is None or fetched < oldest:
+            oldest = fetched
         valid[label_id] = {
             'last': entry['last'],
             'messages': entry.get('messages', 0),
+            'fetched': fetched.isoformat(),
         }
+
+    if expired:
+        print('%d cached date(s) are over %d days old - re-reading those labels.'
+              % (expired, gc.CACHE_MAX_AGE_DAYS))
+    if valid:
+        print('Reusing %d cached date(s), the oldest read on %s (%d days ago).'
+              % (len(valid), oldest.date(), (now - oldest).days))
     return valid
 
 
@@ -301,7 +324,8 @@ def main():
             entry = cache[label_id]
         else:
             when, estimate = last_message(svc, label_id)
-            entry = {'last': when.isoformat() if when else None, 'messages': estimate}
+            entry = {'last': when.isoformat() if when else None, 'messages': estimate,
+                     'fetched': datetime.now(UTC).isoformat()}
             cache[label_id] = entry
             lookups += 1
             time.sleep(0.05)

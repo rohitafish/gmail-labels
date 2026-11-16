@@ -55,8 +55,8 @@ This is the only part I can't do for you — it needs your Google account.
 
    This keeps the app in Testing mode — private to you, no Google verification
    needed. The catch is that refresh tokens expire after 7 days in that mode;
-   if a run ever fails with `invalid_grant`, delete `token_readonly.json` /
-   `token_labels.json` and re-authorise.
+   when that happens the next run says the stored token could not be
+   refreshed and opens the browser for you to authorise again.
 
 5. **Create the client.** Go to
    **https://console.cloud.google.com/auth/clients**, click
@@ -112,7 +112,9 @@ mode, including your own. **Internal** apps don't show it.
 
 It examines 517 in-scope labels (~1,000 API calls, roughly 3–4 minutes) and
 writes **`label_audit.csv`**. Results are cached in `.audit_cache.json`, so
-re-running is instant. Use `--refresh` to re-read everything from Gmail.
+re-running is instant. Each cached date is kept for `CACHE_MAX_AGE_DAYS` (7)
+from the day it was read, then re-read. Use `--refresh` to re-read everything
+from Gmail now.
 
 ### The CSV
 
@@ -210,9 +212,16 @@ deepest paths first so a parent is never renamed out from under a child, skips
 any target name that already exists rather than crashing, and sleeps 120ms
 between calls to stay inside the rate limits.
 
+`--apply` refuses a CSV from an audit more than `CACHE_MAX_AGE_DAYS` (7) old,
+and the dry run warns about one. This step cannot read mail, so it cannot tell
+whether a label has had new mail since the audit; re-run `./run audit.py`
+instead. To apply the old CSV regardless, add `--allow-old-csv`.
+
 Every result is written to a timestamped **`apply_log-<date>-<time>.csv`** with
 the original name in column 1. Dry runs get a `-dryrun` suffix. Nothing is ever
 overwritten — those logs are the only record of the old names, so keep them.
+The log is written one row at a time, so a run that is interrupted part-way
+still leaves a log of every rename it made.
 
 Gmail's sidebar can take a minute to catch up. Reload Gmail if the tree looks
 wrong immediately afterwards.
