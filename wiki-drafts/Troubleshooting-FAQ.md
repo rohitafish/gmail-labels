@@ -5,11 +5,12 @@ goes wrong, [open an issue](https://github.com/rohitafish/gmail-labels/issues)
 with the exact command and output.
 
 **A run suddenly asks me to sign in again, or opens a browser unexpectedly.**
-Your OAuth token expired and couldn't be silently refreshed — this happens on
-its own eventually, and immediately if Google's consent screen for this app
-is still in "Testing" publishing status, where refresh tokens expire after 7
-days of inactivity. Complete the browser consent screen again; nothing about
-your data or the audit logic is affected.
+Your OAuth token expired and couldn't be silently refreshed. A token that
+goes unused for six months expires. If Google's consent screen for this app
+is still in "Testing" publishing status, every token also expires 7 days
+after it was issued, whether or not it was used in that time. Complete the
+browser consent screen again; nothing about your data or the audit logic is
+affected.
 
 ---
 
