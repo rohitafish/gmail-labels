@@ -128,6 +128,36 @@ def test_expired_creds_with_a_refresh_token_are_refreshed_not_reauthorised(
     assert creds.refreshed
 
 
+def test_a_refresh_that_google_rejects_falls_back_to_the_browser_flow(
+        _sandbox, monkeypatch, capsys):
+    """invalid_grant: the refresh token is revoked, or past the 7 days an app
+    in Testing mode gets. That used to end the run with a traceback and a
+    token file to delete by hand."""
+    token_path = _sandbox['tmp_path'] / 'token_readonly.json'
+    token_path.write_text('{"stub": "token"}')
+    (_sandbox['tmp_path'] / 'credentials.json').write_text('{"installed": {}}')
+
+    class _DeadCreds(_FakeCreds):
+        def refresh(self, request):
+            raise gc.RefreshError('invalid_grant: Token has been expired or revoked.')
+
+    monkeypatch.setattr(
+        gc.Credentials, 'from_authorized_user_file',
+        staticmethod(lambda path, scopes: _DeadCreds(valid=False, expired=True,
+                                                     refresh_token='rt-1')))
+    fresh_creds = _FakeCreds(valid=True)
+    fake_flow = _FakeFlow(fresh_creds)
+    monkeypatch.setattr(gc.InstalledAppFlow, 'from_client_secrets_file',
+                        staticmethod(lambda path, scopes: fake_flow))
+
+    gc.service(gc.SCOPE_READONLY, 'token_readonly.json')
+
+    assert fake_flow.ran
+    assert _sandbox['build_calls'][0]['credentials'] is fresh_creds
+    assert token_path.read_text() == '{"fake": "creds"}'
+    assert 'could not be refreshed' in capsys.readouterr().out
+
+
 def test_the_new_token_file_and_credentials_file_end_up_owner_only(
         _sandbox, monkeypatch):
     creds_path = _sandbox['tmp_path'] / 'credentials.json'

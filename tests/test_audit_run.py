@@ -201,3 +201,17 @@ def test_a_cache_hit_issues_no_messages_calls_at_all(tmp_path, monkeypatch, fake
 
     assert not any(c.startswith('messages.') for c in fake_service.calls)
     assert 'labels.list' in fake_service.calls
+
+
+def test_a_fresh_lookup_is_cached_with_the_time_it_was_read(tmp_path, monkeypatch,
+                                                            fake_service):
+    cache_file = tmp_path / '.audit_cache.json'
+    monkeypatch.setattr(gc, 'CACHE_FILE', str(cache_file))
+    fake_service.label_list = [make_label('Widgets 🧩/Vendors/Acme Supply', 'id-1')]
+    fake_service.mail = {'id-1': (utc(2026, 1, 1), 3)}
+
+    before = datetime.now(UTC)
+    _run_main(monkeypatch, fake_service, tmp_path / 'audit.csv')
+
+    fetched = datetime.fromisoformat(audit.load_cache(refresh=False)['id-1']['fetched'])
+    assert before <= fetched <= datetime.now(UTC)
