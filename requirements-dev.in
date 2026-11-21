@@ -3,7 +3,10 @@
 # edit-here-then-regenerate rule as requirements.in; the constraint line
 # keeps the two resolutions consistent:
 #
-#   uv pip compile --universal --generate-hashes -o requirements-dev.txt requirements-dev.in
+#   UV_EXCLUDE_NEWER=P7D uv pip compile --universal --generate-hashes -o requirements-dev.txt requirements-dev.in
+#
+# UV_EXCLUDE_NEWER=P7D is a 7-day cooldown on new releases; see
+# CONTRIBUTING.md's "Dependencies".
 #
 # Install both with:
 #   ./.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
