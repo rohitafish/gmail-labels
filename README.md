@@ -58,6 +58,46 @@ for the full decision tree.
 Every apply run writes a timestamped `apply_log-*.csv` — keep it, it's the
 only record of the original names if you ever want to undo a move.
 
+### Auditing filters
+
+`filter_audit.py` works out which Gmail filters you can safely delete. It is
+read-only and uses the same `gmail.readonly` token as `audit.py`.
+
+1. In Gmail, go to Settings → Filters and Blocked Addresses, select all, and
+   click **Export**. Save the file as `filters/mailFilters.xml`. That folder is
+   gitignored, and the file is also your backup.
+2. Run the audit. It searches for each filter's criteria across all mail,
+   Spam and Trash included, and writes `filter_audit.csv`:
+
+   ```bash
+   ./run filter_audit.py --limit 20   # quick trial
+   ./run filter_audit.py              # every filter
+   ```
+
+   | VERDICT | Meaning | Suggested ACTION |
+   |---|---|---|
+   | `ACTIVE` | matched mail in the last year | `KEEP` |
+   | `QUIET` | last match 1–2 years ago | `REVIEW` |
+   | `DEAD` / `NEVER MATCHED` | no match in 2 years, or ever | `DELETE` |
+   | `DUPLICATE` | same criteria and actions as an earlier filter | `DELETE` |
+   | `REDUNDANT` | a broader filter (e.g. `shop.example.com` for `news@shop.example.com`) already does the same | `DELETE` |
+   | `NO ACTION` | does nothing to the mail it matches | `DELETE` |
+
+   A dead filter that forwards, never-spams, trashes or marks important is
+   suggested for `REVIEW` instead, because those actions can matter even
+   without recent mail. Trashed mail is purged after 30 days, so a working
+   delete filter can look unused.
+
+3. Edit the `ACTION` column, then build a pruned export:
+
+   ```bash
+   ./run filter_audit.py --prune filter_audit.csv   # writes filters/mailFilters-pruned.xml
+   ```
+
+4. Gmail's Import adds filters but does not replace them. To apply the pruned
+   file, delete every filter in Gmail, then Import `mailFilters-pruned.xml`.
+   Keep the original export: importing it restores the old set.
+
 ## Tuning
 
 The staleness/revival/scope rules live as plain constants at the top of
