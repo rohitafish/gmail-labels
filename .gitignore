@@ -37,3 +37,9 @@ htmlcov/
 # Claude Code's own local session/config directory - machine-specific,
 # never meant to be shared or committed.
 .claude/
+
+# Gmail filter export and the filter audit built from it - real addresses,
+# domains and label names from your own mailbox, kept local
+filters/
+filter_audit*.csv
+.filter_audit_cache.json*
